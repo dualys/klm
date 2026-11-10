@@ -2,17 +2,30 @@ extern crate alloc;
 
 use serde::{Deserialize, Serialize};
 
-/// The distinct phases of Kōgnitara's circadian cognitive cycle.
+/// The distinct phases of Kōgnitara's circadian cognitive cycle,
+/// following the 20% Ramp - 60% Deep Core - 20% Crystallization architecture.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CircadianPhase {
     /// Front-end wakefulness: direct interaction, perceptions, accumulating experiential deltas
     Awake,
-    /// 20% Ramp entry: sensory gating, unbinding rigid constraints, loading memory buffers
+    /// 20% Entry Ramp: sensory gating, unbinding rigid constraints, selecting high-dissonance memories
     DrowsinessRamp,
-    /// 60% Core oniric state: unconstrained lateral exploration, analogy synthesis, paradox resolution
+    /// 60% Core Oniric State: unconstrained lateral exploration, analogy synthesis, paradox resolution
     DeepDream,
-    /// 20% Exit ramp: crystallization, BLAKE3 Merkle integrity tree generation, Kpack commit
+    /// 20% Exit Ramp: crystallization, BLAKE3 Merkle integrity tree generation, Kpack & Jinshu commit
     Crystallization,
+}
+
+impl CircadianPhase {
+    /// Returns the architectural temporal allocation ratio of the sleep/dream gradient (20-60-20).
+    pub const fn sleep_gradient_ratio(&self) -> f32 {
+        match self {
+            CircadianPhase::Awake => 1.0,
+            CircadianPhase::DrowsinessRamp => 0.20,
+            CircadianPhase::DeepDream => 0.60,
+            CircadianPhase::Crystallization => 0.20,
+        }
+    }
 }
 
 /// Manages and tracks the temporal circadian flow and sleep cycles.

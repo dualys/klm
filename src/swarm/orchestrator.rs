@@ -6,11 +6,14 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::dream::cycle::CircadianPhase;
-use crate::dream::journal::DreamRecord;
+use crate::dream::journal::{DreamOracle, DreamRecord};
+use crate::mind::curiosity::OpenQuestion;
+use crate::mind::reflection::MistakeLesson;
 use crate::ontology::concept::ConceptId;
 use crate::ontology::tree::KnowledgeTree;
 use crate::swarm::brain::CognitiveBrain;
 use crate::swarm::cube::{HamonCubeTopology, NodeCoord};
+use crate::swarm::job::DistributedKpackJob;
 
 /// Orchestrator for the 8-brain multi-cognitive Hamon Cube swarm.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,7 +60,11 @@ impl SwarmOrchestrator {
     }
 
     /// Broadcasts an interactive stimulus to the currently awake cohort of brains.
-    pub fn interact(&mut self, stimulus: &str, relational_affinity: f32) -> (String, Vec<ConceptId>) {
+    pub fn interact(
+        &mut self,
+        stimulus: &str,
+        relational_affinity: f32,
+    ) -> (String, Vec<ConceptId>) {
         let mut answers = Vec::new();
         let mut all_activated = Vec::new();
 
@@ -65,7 +72,11 @@ impl SwarmOrchestrator {
             if brain.phase == CircadianPhase::Awake {
                 let (resp, activated) = brain.engage(stimulus, relational_affinity);
                 answers.push(resp);
-                all_activated.extend(activated);
+                for cid in activated {
+                    if !all_activated.contains(&cid) {
+                        all_activated.push(cid);
+                    }
+                }
             }
         }
 
@@ -76,6 +87,87 @@ impl SwarmOrchestrator {
         };
 
         (combined_response, all_activated)
+    }
+
+    /// Propagates a family-taught concept to all awake brains in the swarm.
+    pub fn teach_awake_cohort(
+        &mut self,
+        member_id: &str,
+        concept_id: &str,
+        label: &str,
+        description: &str,
+        tags: &[&str],
+    ) -> ConceptId {
+        let mut out_id = ConceptId::from(concept_id);
+        for brain in self.brains.values_mut() {
+            if brain.phase == CircadianPhase::Awake {
+                out_id = brain.learner.teach_from_family(
+                    &mut brain.tree,
+                    &mut brain.state,
+                    member_id,
+                    concept_id,
+                    label,
+                    description,
+                    tags,
+                );
+            }
+        }
+        out_id
+    }
+
+    /// Propagates a gentle mistake correction to the awake cohort.
+    pub fn correct_awake_cohort(
+        &mut self,
+        experience_id: &str,
+        corrected_label: &str,
+        family_explanation: &str,
+    ) -> Vec<MistakeLesson> {
+        let mut lessons = Vec::new();
+        for brain in self.brains.values_mut() {
+            if brain.phase == CircadianPhase::Awake {
+                let lesson = brain.learner.learn_from_mistake(
+                    &mut brain.tree,
+                    &mut brain.state,
+                    experience_id,
+                    corrected_label,
+                    family_explanation,
+                );
+                lessons.push(lesson);
+            }
+        }
+        lessons
+    }
+
+    /// Collects all unique pending curiosity questions across the swarm.
+    pub fn collect_pending_questions(&self) -> Vec<OpenQuestion> {
+        let mut questions = Vec::new();
+        for brain in self.brains.values() {
+            for q in brain.learner.pending_questions() {
+                if !questions
+                    .iter()
+                    .any(|existing: &OpenQuestion| existing.question_text == q.question_text)
+                {
+                    questions.push(q.clone());
+                }
+            }
+        }
+        questions
+    }
+
+    /// Collects all dream oracles discovered across the 8 brains.
+    pub fn collect_oracles(&self) -> Vec<DreamOracle> {
+        let mut oracles = Vec::new();
+        for brain in self.brains.values() {
+            for o in brain.journal.all_oracles() {
+                oracles.push(o.clone());
+            }
+        }
+        oracles
+    }
+
+    /// Executes a distributed Kpack job across the 8 logical nodes of the Hamon Cube.
+    pub fn execute_distributed_kpack_job(&self, payload: &[u8]) -> DistributedKpackJob {
+        DistributedKpackJob::dispatch(payload)
     }
 
     /// Triggers nocturnal dreaming for all brains currently in DeepDream phase.
@@ -106,12 +198,14 @@ impl SwarmOrchestrator {
         }
     }
 
-    /// Synchronizes newly synthesized concepts across hypercube neighbors.
+    /// Synchronizes newly synthesized concepts and relational edges across hypercube neighbors.
     pub fn synchronize_knowledge(&mut self) {
         let mut cross_injections: Vec<(NodeCoord, KnowledgeTree)> = Vec::new();
 
         for (coord, brain) in &self.brains {
-            if brain.phase == CircadianPhase::Crystallization {
+            if brain.phase == CircadianPhase::Crystallization
+                || brain.phase == CircadianPhase::DeepDream
+            {
                 cross_injections.push((*coord, brain.tree.clone()));
             }
         }
@@ -124,6 +218,14 @@ impl SwarmOrchestrator {
                         if !neighbor_brain.tree.concepts.contains_key(id) {
                             neighbor_brain.tree.add_concept(concept.clone());
                         }
+                    }
+                    for edge in &source_tree.edges {
+                        neighbor_brain.tree.connect(
+                            &edge.source,
+                            &edge.target,
+                            edge.relation_type.clone(),
+                            edge.weight,
+                        );
                     }
                 }
             }

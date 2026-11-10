@@ -1,12 +1,16 @@
 extern crate alloc;
 
 use alloc::string::{String, ToString};
-use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
+use noun::Noun;
 use serde::{Deserialize, Serialize};
 
 use crate::clock::current_timestamp;
+use crate::compute::{ComputeBackend, CpuBackend};
+
+/// Dimensionality of Kōgnitara's continuous latent concept embeddings.
+pub const EMBEDDING_DIM: usize = 16;
 
 /// Unique and fluid identifier for a concept in the Knowledge Tree.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -45,6 +49,43 @@ pub enum ConceptOrigin {
     SpontaneousAnalogy,
 }
 
+/// Projects arbitrary text or symbolic features into a unit-normalized 16D embedding vector
+/// using BLAKE3 feature projection and open compute normalization.
+pub fn compute_text_embedding(text: &str, valence_hint: f32) -> Vec<f32> {
+    let mut vec = alloc::vec![0.0f32; EMBEDDING_DIM];
+    let lower = text.to_lowercase();
+
+    // Project word tokens so semantically overlapping phrases share directional components
+    let mut has_words = false;
+    for token in lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() >= 2)
+    {
+        has_words = true;
+        let digest = blake3::hash(token.as_bytes());
+        let bytes = digest.as_bytes();
+        for i in 0..EMBEDDING_DIM {
+            let b = bytes[i] as f32 / 127.5 - 1.0;
+            vec[i] += b;
+        }
+    }
+
+    if !has_words {
+        let digest = blake3::hash(lower.as_bytes());
+        let bytes = digest.as_bytes();
+        for i in 0..EMBEDDING_DIM {
+            vec[i] = bytes[i] as f32 / 127.5 - 1.0;
+        }
+    }
+
+    // Encode affective tone subtly into dimension 0
+    vec[0] += valence_hint * 0.35;
+
+    let cpu = CpuBackend::new();
+    cpu.normalize(&mut vec);
+    vec
+}
+
 /// Representation of a fluid, plastic neuro-symbolic concept.
 /// Designed to evolve organically without rigid dogma or static confinement.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,7 +98,7 @@ pub struct Concept {
     pub description: String,
     /// Associated contextual tags
     pub tags: Vec<String>,
-    /// Continuous latent semantic embedding vector (open format)
+    /// Continuous latent semantic embedding vector (16D open format)
     pub embedding: Vec<f32>,
     /// Synaptic plasticity (1.0 = highly malleable / nascent, 0.1 = crystallized)
     pub plasticity: f32,
@@ -80,20 +121,27 @@ pub struct Concept {
 }
 
 impl Concept {
-    /// Creates a nascent concept with high plasticity and natural epistemic humility.
+    /// Creates a nascent concept with high plasticity, normalized semantic embedding, and natural epistemic humility.
     pub fn new(
         id: impl Into<ConceptId>,
         label: impl Into<String>,
         description: impl Into<String>,
         origin: ConceptOrigin,
     ) -> Self {
+        let id = id.into();
+        let label = label.into();
+        let description = description.into();
         let now = current_timestamp();
+
+        let seed_text = alloc::format!("{} {}", label, description);
+        let embedding = compute_text_embedding(&seed_text, 0.0);
+
         Self {
-            id: id.into(),
-            label: label.into(),
-            description: description.into(),
+            id,
+            label,
+            description,
             tags: Vec::new(),
-            embedding: vec![0.0; 16],
+            embedding,
             plasticity: 0.95,
             confidence: 0.25, // Starts with healthy curiosity and epistemic modesty
             affective_valence: 0.0,
@@ -103,6 +151,33 @@ impl Concept {
             created_at: now,
             last_resonated_at: now,
             experience_count: 1,
+        }
+    }
+
+    /// Computes the 32-byte Amentys `Noun` cryptographic identity for this concept.
+    pub fn noun(&self) -> Noun {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(self.id.0.as_bytes());
+        hasher.update(self.label.as_bytes());
+        hasher.update(self.description.as_bytes());
+        let bytes: [u8; 32] = *hasher.finalize().as_bytes();
+        Noun::from_bytes(&bytes).unwrap_or_else(Noun::null)
+    }
+
+    /// Returns the epistemic doubt (uncertainty modulated by plasticity) in `[0.0, 1.0]`.
+    /// High epistemic doubt drives Kōgnitara's curiosity to ask questions and dream.
+    pub fn epistemic_doubt(&self) -> f32 {
+        ((1.0 - self.confidence) * (0.5 + 0.5 * self.plasticity)).clamp(0.0, 1.0)
+    }
+
+    /// Adds a semantic tag and gently adapts the concept's embedding vector.
+    pub fn add_tag(&mut self, tag: impl Into<String>) {
+        let tag_str = tag.into();
+        if !self.tags.contains(&tag_str) {
+            let tag_emb = compute_text_embedding(&tag_str, self.affective_valence);
+            let cpu = CpuBackend::new();
+            self.embedding = cpu.blend_embeddings(&self.embedding, &tag_emb, 0.20);
+            self.tags.push(tag_str);
         }
     }
 
@@ -126,6 +201,7 @@ impl Concept {
     /// Stimulates this concept with an energy impulse in working memory.
     pub fn stimulate(&mut self, energy: f32) {
         self.current_activation = (self.current_activation + energy).clamp(0.0, 1.0);
+        self.last_resonated_at = current_timestamp();
     }
 
     /// Natural temporal decay of transient activation (short-term forgetting).

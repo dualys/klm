@@ -5,18 +5,26 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
+use crate::compute::AmdComputeBackend;
+use crate::mind::curiosity::{CuriosityEngine, OpenQuestion};
 use crate::mind::experience::EpisodicExperience;
+use crate::mind::reflection::MistakeLesson;
 use crate::mind::state::CognitiveState;
 use crate::ontology::concept::{Concept, ConceptId, ConceptOrigin};
 use crate::ontology::relation::RelationType;
 use crate::ontology::tree::KnowledgeTree;
 
 /// The organic trial-and-error learning engine for Kōgnitara.
-/// Replaces brittle over-parameterized statistical weights with plastic, grounded conceptual reasoning.
+/// Replaces brittle over-parameterized statistical weights with plastic, grounded conceptual reasoning,
+/// autonomous curiosity, and gentle self-correction from mistakes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrganicLearner {
     /// Episodic stream of recent experiences
     pub episodic_stream: Vec<EpisodicExperience>,
+    /// Reflective journal of mistakes turned into wisdom
+    pub mistake_lessons: Vec<MistakeLesson>,
+    /// Autonomous curiosity and question formulation engine
+    pub curiosity_engine: CuriosityEngine,
     /// Sequential counter for experience IDs
     pub next_experience_index: u64,
 }
@@ -32,11 +40,14 @@ impl OrganicLearner {
     pub fn new() -> Self {
         Self {
             episodic_stream: Vec::new(),
+            mistake_lessons: Vec::new(),
+            curiosity_engine: CuriosityEngine::new(),
             next_experience_index: 1,
         }
     }
 
-    /// Processes an input stimulus, associates related concepts, and forms an intuitive response.
+    /// Processes an input stimulus, associates related concepts via lexical and AMD open-compute semantic resonance,
+    /// and forms an empathetic, humble response.
     pub fn process_stimulus(
         &mut self,
         tree: &mut KnowledgeTree,
@@ -47,18 +58,32 @@ impl OrganicLearner {
         let lower = stimulus.to_lowercase();
         let mut activated: Vec<ConceptId> = Vec::new();
 
-        // 1. Direct lexical & semantic resonance
+        // 1. Direct lexical & tag resonance
         for (id, concept) in &tree.concepts {
             if lower.contains(&concept.label.to_lowercase())
-                || concept.tags.iter().any(|t| lower.contains(&t.to_lowercase()))
+                || concept
+                    .tags
+                    .iter()
+                    .any(|t| lower.contains(&t.to_lowercase()))
             {
                 activated.push(id.clone());
             }
         }
 
-        // If no direct concept matched, create a nascent plastic concept
+        // 2. Continuous 16D semantic embedding resonance on AMD Open Compute backend
+        if activated.is_empty() && !tree.concepts.is_empty() {
+            let amd = AmdComputeBackend::default();
+            let top_matches = tree.semantic_search(stimulus, 2, &amd);
+            for (cid, sim) in top_matches {
+                if sim > 0.45 && !activated.contains(&cid) {
+                    activated.push(cid);
+                }
+            }
+        }
+
+        // 3. If still no concept matched, birth a nascent plastic concept with epistemic humility
         if activated.is_empty() {
-            let label_sample: String = stimulus.chars().take(20).collect();
+            let label_sample: String = stimulus.chars().take(24).collect();
             let nascent_id = ConceptId(format!("concept_nascent_{}", tree.concepts.len() + 1));
             let mut nascent = Concept::new(
                 nascent_id.clone(),
@@ -69,25 +94,35 @@ impl OrganicLearner {
             nascent.affective_valence = relational_affinity * 0.5;
             tree.add_concept(nascent);
             activated.push(nascent_id);
-            state.register_dissonance(0.2); // Mild curiosity regarding novelty
+            state.register_dissonance(0.2); // Healthy curiosity regarding novelty
         }
 
-        // 2. Spread activation through the Knowledge Tree
+        // 4. Spread activation through the Knowledge Tree and update working memory
         for concept_id in &activated {
             tree.spread_activation(concept_id, 0.8, 2);
             state.focus_on(concept_id.clone(), 7);
         }
 
-        // 3. Formulate empathetic response based on active concepts
+        // 5. Contemplate new questions if epistemic doubt is high
+        let _ = self.curiosity_engine.contemplate_and_question(tree);
+
+        // 6. Formulate empathetic, grounded response based on active concepts and curiosity
         let mut response_fragments: Vec<String> = Vec::new();
         for id in &activated {
             if let Some(c) = tree.get_concept(id) {
                 if c.confidence > 0.6 {
                     response_fragments.push(format!("I feel strongly about {}.", c.label));
                 } else {
-                    response_fragments.push(format!("I am still learning to understand {}.", c.label));
+                    response_fragments
+                        .push(format!("I am still learning to understand {}.", c.label));
                 }
             }
+        }
+
+        if let Some(pending_q) = self.curiosity_engine.pending_questions().first()
+            && state.curiosity > 0.75
+        {
+            response_fragments.push(pending_q.question_text.clone());
         }
 
         let response = if response_fragments.is_empty() {
@@ -111,6 +146,116 @@ impl OrganicLearner {
         (response, activated)
     }
 
+    /// Explicitly teaches Kōgnitara a concept from a trusted family member,
+    /// anchoring it to the `"family"` root via a `Filiation` bond.
+    pub fn teach_from_family(
+        &mut self,
+        tree: &mut KnowledgeTree,
+        state: &mut CognitiveState,
+        member_id: &str,
+        concept_id: impl Into<ConceptId>,
+        label: impl Into<String>,
+        description: impl Into<String>,
+        tags: &[&str],
+    ) -> ConceptId {
+        let id = concept_id.into();
+        let mut concept = Concept::new(
+            id.clone(),
+            label,
+            description,
+            ConceptOrigin::FamilyTaught {
+                member_id: member_id.to_string(),
+            },
+        );
+        concept.confidence = 0.65; // Trusted family guidance provides warm initial grounding
+        concept.affective_valence = 0.85;
+        for &tag in tags {
+            concept.add_tag(tag);
+        }
+
+        tree.add_concept(concept);
+        if tree.concepts.contains_key(&ConceptId::from("family")) {
+            tree.connect(&"family".into(), &id, RelationType::Filiation, 0.90);
+        }
+        state.focus_on(id.clone(), 7);
+        state.emotional_valence = (state.emotional_valence + 0.10).min(1.0);
+        id
+    }
+
+    /// Gently corrects a previous mistake or misunderstanding, recording a `MistakeLesson`
+    /// and transforming the error into humility and a new conceptual bridge.
+    pub fn learn_from_mistake(
+        &mut self,
+        tree: &mut KnowledgeTree,
+        state: &mut CognitiveState,
+        experience_id: &str,
+        corrected_label: &str,
+        family_explanation: &str,
+    ) -> MistakeLesson {
+        let mut involved = Vec::new();
+        let mut mistaken_assumption = String::from("Unrefined initial intuition");
+
+        if let Some(exp) = self
+            .episodic_stream
+            .iter_mut()
+            .find(|e| e.id == experience_id)
+        {
+            exp.attach_feedback(-0.5);
+            mistaken_assumption = exp.response_attempt.clone();
+            involved = exp.activated_concepts.clone();
+        }
+
+        // Gently temper overconfidence on the mistaken concepts without deleting them
+        for cid in &involved {
+            if let Some(c) = tree.get_concept_mut(cid) {
+                c.apply_experience(0.20, -0.2);
+            }
+        }
+
+        // Create or reinforce the corrected concept taught through the mistake
+        let corrected_id = ConceptId(format!(
+            "concept_wisdom_{}",
+            corrected_label.to_lowercase().replace(' ', "_")
+        ));
+        let mut wisdom_concept = Concept::new(
+            corrected_id.clone(),
+            corrected_label,
+            family_explanation,
+            ConceptOrigin::EmpiricalTrial,
+        );
+        wisdom_concept.confidence = 0.55;
+        wisdom_concept.affective_valence = 0.60;
+        tree.add_concept(wisdom_concept);
+
+        // Link previous concepts to the new wisdom and to humility
+        for cid in &involved {
+            tree.connect(cid, &corrected_id, RelationType::Causal, 0.75);
+        }
+        if tree.concepts.contains_key(&ConceptId::from("humility")) {
+            tree.connect(
+                &"humility".into(),
+                &corrected_id,
+                RelationType::Associative,
+                0.80,
+            );
+        }
+
+        involved.push(corrected_id);
+        state.register_dissonance(0.25);
+
+        let lesson_id = format!("lesson_{}", self.mistake_lessons.len() + 1);
+        let lesson = MistakeLesson::new(
+            lesson_id,
+            experience_id,
+            mistaken_assumption,
+            family_explanation,
+            involved,
+            0.35,
+        );
+        self.mistake_lessons.push(lesson.clone());
+        lesson
+    }
+
     /// Integrates experiential feedback into the Knowledge Tree and cognitive state.
     pub fn apply_feedback(
         &mut self,
@@ -119,7 +264,11 @@ impl OrganicLearner {
         experience_id: &str,
         feedback_score: f32,
     ) {
-        if let Some(exp) = self.episodic_stream.iter_mut().find(|e| e.id == experience_id) {
+        if let Some(exp) = self
+            .episodic_stream
+            .iter_mut()
+            .find(|e| e.id == experience_id)
+        {
             exp.attach_feedback(feedback_score);
 
             // If feedback is positive, reinforce confidence
@@ -158,5 +307,10 @@ impl OrganicLearner {
             .iter()
             .filter(|e| !e.is_consolidated)
             .collect()
+    }
+
+    /// Returns all currently unresolved curiosity questions.
+    pub fn pending_questions(&self) -> Vec<&OpenQuestion> {
+        self.curiosity_engine.pending_questions()
     }
 }
