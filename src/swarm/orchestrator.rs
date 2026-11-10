@@ -9,6 +9,7 @@ use crate::dream::cycle::CircadianPhase;
 use crate::dream::journal::{DreamOracle, DreamRecord};
 use crate::mind::curiosity::OpenQuestion;
 use crate::mind::reflection::MistakeLesson;
+use crate::mind::socratic::SocraticReflection;
 use crate::ontology::concept::ConceptId;
 use crate::ontology::tree::KnowledgeTree;
 use crate::swarm::brain::CognitiveBrain;
@@ -152,6 +153,22 @@ impl SwarmOrchestrator {
             }
         }
         questions
+    }
+
+    /// Collects all unique Socratic self-reflections generated across the swarm during learning.
+    pub fn collect_socratic_reflections(&self) -> Vec<SocraticReflection> {
+        let mut reflections = Vec::new();
+        for brain in self.brains.values() {
+            for r in brain.learner.socratic_reflections() {
+                if !reflections.iter().any(|existing: &SocraticReflection| {
+                    existing.interior_monologue == r.interior_monologue
+                        && existing.examined_hypothesis == r.examined_hypothesis
+                }) {
+                    reflections.push(r.clone());
+                }
+            }
+        }
+        reflections
     }
 
     /// Collects all dream oracles discovered across the 8 brains.

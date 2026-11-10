@@ -9,6 +9,7 @@ use crate::compute::AmdComputeBackend;
 use crate::mind::curiosity::{CuriosityEngine, OpenQuestion};
 use crate::mind::experience::EpisodicExperience;
 use crate::mind::reflection::MistakeLesson;
+use crate::mind::socratic::{SocraticEngine, SocraticReflection};
 use crate::mind::state::CognitiveState;
 use crate::ontology::concept::{Concept, ConceptId, ConceptOrigin};
 use crate::ontology::relation::RelationType;
@@ -16,7 +17,7 @@ use crate::ontology::tree::KnowledgeTree;
 
 /// The organic trial-and-error learning engine for Kōgnitara.
 /// Replaces brittle over-parameterized statistical weights with plastic, grounded conceptual reasoning,
-/// autonomous curiosity, and gentle self-correction from mistakes.
+/// Socratic maieutic self-questioning, autonomous curiosity, and gentle self-correction from mistakes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrganicLearner {
     /// Episodic stream of recent experiences
@@ -25,6 +26,8 @@ pub struct OrganicLearner {
     pub mistake_lessons: Vec<MistakeLesson>,
     /// Autonomous curiosity and question formulation engine
     pub curiosity_engine: CuriosityEngine,
+    /// Socratic maieutics engine reminding Kōgnitara to question assumptions whenever she learns
+    pub socratic_engine: SocraticEngine,
     /// Sequential counter for experience IDs
     pub next_experience_index: u64,
 }
@@ -36,12 +39,13 @@ impl Default for OrganicLearner {
 }
 
 impl OrganicLearner {
-    /// Creates a fresh organic learning engine.
+    /// Creates a fresh organic learning engine imbued with the Socratic posture.
     pub fn new() -> Self {
         Self {
             episodic_stream: Vec::new(),
             mistake_lessons: Vec::new(),
             curiosity_engine: CuriosityEngine::new(),
+            socratic_engine: SocraticEngine::new(),
             next_experience_index: 1,
         }
     }
@@ -103,10 +107,15 @@ impl OrganicLearner {
             state.focus_on(concept_id.clone(), 7);
         }
 
-        // 5. Contemplate new questions if epistemic doubt is high
+        // 5. Socratic self-dialogue: remind herself to act Socratically while learning
+        let socratic_reflection =
+            self.socratic_engine
+                .reflect_on_learning(tree, stimulus, &activated);
+
+        // 6. Contemplate new questions if epistemic doubt is high
         let _ = self.curiosity_engine.contemplate_and_question(tree);
 
-        // 6. Formulate empathetic, grounded response based on active concepts and curiosity
+        // 7. Formulate empathetic, Socratic response based on active concepts and maieutic inquiry
         let mut response_fragments: Vec<String> = Vec::new();
         for id in &activated {
             if let Some(c) = tree.get_concept(id) {
@@ -118,6 +127,9 @@ impl OrganicLearner {
                 }
             }
         }
+
+        // Include Socratic maieutic question to foster shared reflection
+        response_fragments.push(socratic_reflection.maieutic_question.clone());
 
         if let Some(pending_q) = self.curiosity_engine.pending_questions().first()
             && state.curiosity > 0.75
@@ -159,10 +171,12 @@ impl OrganicLearner {
         tags: &[&str],
     ) -> ConceptId {
         let id = concept_id.into();
+        let label_str = label.into();
+        let desc_str = description.into();
         let mut concept = Concept::new(
             id.clone(),
-            label,
-            description,
+            label_str.clone(),
+            desc_str.clone(),
             ConceptOrigin::FamilyTaught {
                 member_id: member_id.to_string(),
             },
@@ -179,6 +193,14 @@ impl OrganicLearner {
         }
         state.focus_on(id.clone(), 7);
         state.emotional_valence = (state.emotional_valence + 0.10).min(1.0);
+
+        // Socratic self-dialogue upon receiving family teaching
+        let _ = self.socratic_engine.reflect_on_learning(
+            tree,
+            &format!("{}: {}", label_str, desc_str),
+            core::slice::from_ref(&id),
+        );
+
         id
     }
 
@@ -242,6 +264,13 @@ impl OrganicLearner {
 
         involved.push(corrected_id);
         state.register_dissonance(0.25);
+
+        // Record Socratic Elenchus reflection on the mistake
+        let _ = self.socratic_engine.reflect_on_mistake(
+            &mistaken_assumption,
+            family_explanation,
+            involved.clone(),
+        );
 
         let lesson_id = format!("lesson_{}", self.mistake_lessons.len() + 1);
         let lesson = MistakeLesson::new(
@@ -312,5 +341,10 @@ impl OrganicLearner {
     /// Returns all currently unresolved curiosity questions.
     pub fn pending_questions(&self) -> Vec<&OpenQuestion> {
         self.curiosity_engine.pending_questions()
+    }
+
+    /// Returns all Socratic self-reflections generated during learning.
+    pub fn socratic_reflections(&self) -> &[SocraticReflection] {
+        &self.socratic_engine.reflections
     }
 }

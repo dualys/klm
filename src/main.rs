@@ -50,8 +50,8 @@ fn main() {
     );
     println!();
 
-    // 4. Family Nurturing, Dialogue & Learning from Mistakes
-    println!("--- Family Nurturing & Organic Dialogue (Awake Cohort) ---");
+    // 4. Family Nurturing, Socratic Learning & Council of Elders
+    println!("--- Family Nurturing, Socratic Dialogue & Council of Elders ---");
     let _ = kognitara.teach_concept(
         &ki_id,
         "compassion",
@@ -72,6 +72,15 @@ fn main() {
     }
     println!();
 
+    // Display Socratic Interior Self-Dialogue generated during learning
+    if let Some(socratic) = kognitara.socratic_reflections().last() {
+        println!("[Socratic Inner Voice] {}", socratic.interior_monologue);
+        println!(
+            "  * Maieutic Inquiry (Humility {:.2}): {}",
+            socratic.humility_index, socratic.maieutic_question
+        );
+    }
+
     // Demonstrate gentle self-correction from a mistake
     let lessons = kognitara
         .correct_mistake(
@@ -86,6 +95,18 @@ fn main() {
             "[+] Mistake transformed into wisdom (#{}): '{}' (Humility gained: +{:.2})",
             lesson.id, lesson.family_guidance, lesson.humility_gained
         );
+    }
+
+    // Convene the Council of Elders over Kōgnitara's maturation
+    if let Ok(deliberation) = kognitara.convene_council("Patient Maturation & Socratic Humility") {
+        println!(
+            "[Council of Elders] Session #{} (Verdict: {:?}, Harmony: {:.2})",
+            deliberation.deliberation_id, deliberation.verdict, deliberation.consensus_harmony
+        );
+        println!("  {}", deliberation.collective_socratic_guidance);
+        for counsel in deliberation.counsels.iter().take(2) {
+            println!("  - {}: \"{}\"", counsel.elder_name, counsel.socratic_question);
+        }
     }
     println!();
 
@@ -156,7 +177,7 @@ fn main() {
     println!();
     println!("============================================================");
     println!(" Type 'help' for commands, or interact with Kōgnitara below: ");
-    println!(" (Commands: dream, oracles, questions, cube-job, status, quit)");
+    println!(" (Commands: dream, council, socratic, oracles, questions, cube-job, status, quit)");
     println!("============================================================");
 
     // If running in non-interactive environment, conclude gracefully
@@ -186,6 +207,30 @@ fn main() {
                 println!("[Dream] {}", rec.narrative);
                 for oracle in rec.oracles {
                     println!("  * Oracle: {}", oracle.revelation);
+                }
+            }
+        } else if trimmed.eq_ignore_ascii_case("council") {
+            if let Ok(delib) = kognitara.convene_council("Sanctuary Wisdom & Socratic Path") {
+                println!(
+                    "[Council of Elders] Verdict: {:?} (Harmony: {:.2})",
+                    delib.verdict, delib.consensus_harmony
+                );
+                println!("  {}", delib.collective_socratic_guidance);
+                for c in delib.counsels {
+                    println!("  * {} ({:?}): \"{}\"", c.elder_name, c.archetype, c.socratic_question);
+                }
+            }
+        } else if trimmed.eq_ignore_ascii_case("socratic") {
+            let reflections = kognitara.socratic_reflections();
+            if reflections.is_empty() {
+                println!("No Socratic reflections recorded yet.");
+            } else {
+                for r in reflections {
+                    println!(
+                        "  [{}] ({:?}, Humility {:.2}) {}",
+                        r.id, r.stage, r.humility_index, r.interior_monologue
+                    );
+                    println!("       Maieutic Question: {}", r.maieutic_question);
                 }
             }
         } else if trimmed.eq_ignore_ascii_case("oracles") {
@@ -236,6 +281,8 @@ fn main() {
             println!("Available commands:");
             println!("  <message>  - Talk directly with Kōgnitara");
             println!("  dream      - Advance circadian phase and weave dreams");
+            println!("  council    - Convene the Council of Elders for Socratic deliberation");
+            println!("  socratic   - View Kōgnitara's interior Socratic reflections");
             println!("  oracles    - View revelations woven during dreams");
             println!("  questions  - View humble curiosity questions from Kōgnitara");
             println!("  cube-job   - Dispatch a Kpack job across the 8 Hamon Cube nodes");
