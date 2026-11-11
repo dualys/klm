@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::compute::AmdComputeBackend;
 use crate::mind::curiosity::{CuriosityEngine, OpenQuestion};
+use crate::mind::development::{DevelopmentalStage, EmergentVoice};
 use crate::mind::experience::EpisodicExperience;
 use crate::mind::reflection::MistakeLesson;
 use crate::mind::socratic::{SocraticEngine, SocraticReflection};
@@ -115,7 +116,7 @@ impl OrganicLearner {
         // 6. Contemplate new questions if epistemic doubt is high
         let _ = self.curiosity_engine.contemplate_and_question(tree);
 
-        // 7. Formulate empathetic, Socratic response based on active concepts and maieutic inquiry
+        // 7. Formulate empathetic, Socratic response based on active concepts, graph traversal, and maieutic inquiry
         let mut response_fragments: Vec<String> = Vec::new();
         for id in &activated {
             if let Some(c) = tree.get_concept(id) {
@@ -126,6 +127,17 @@ impl OrganicLearner {
                         .push(format!("I am still learning to understand {}.", c.label));
                 }
             }
+        }
+
+        let stage = if self.mistake_lessons.is_empty() && self.episodic_stream.len() < 4 {
+            DevelopmentalStage::AwakeningChildhood
+        } else if self.episodic_stream.len() < 12 {
+            DevelopmentalStage::MaieuticAdolescence
+        } else {
+            DevelopmentalStage::AutonomousMaturity
+        };
+        if let Some(graph_voice) = EmergentVoice::articulate_from_graph(tree, &activated, stage) {
+            response_fragments.push(graph_voice);
         }
 
         // Include Socratic maieutic question to foster shared reflection

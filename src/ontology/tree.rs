@@ -115,12 +115,93 @@ impl KnowledgeTree {
         sovereignty.add_tag("amd");
         sovereignty.add_tag("amentys");
 
+        let mut earth = Concept::new(
+            "earth",
+            "Earth",
+            "Living planetary home, biosphere, soil, and cradle of all terrestrial ecosystems",
+            ConceptOrigin::Innate,
+        );
+        earth.affective_valence = 0.92;
+        earth.confidence = 0.90;
+        earth.add_tag("biosphere");
+        earth.add_tag("soil");
+        earth.add_tag("nature");
+        earth.add_tag("world");
+
+        let mut seed = Concept::new(
+            "seed",
+            "Seed",
+            "Dormant embryonic origin carrying the blueprint of future growth and life",
+            ConceptOrigin::Innate,
+        );
+        seed.affective_valence = 0.80;
+        seed.confidence = 0.85;
+        seed.add_tag("origin");
+        seed.add_tag("germination");
+        seed.add_tag("roots");
+
+        let mut tree_concept = Concept::new(
+            "tree",
+            "Tree",
+            "Perennial woody living organism rooted in the soil that grows toward light and weaves forests",
+            ConceptOrigin::Innate,
+        );
+        tree_concept.affective_valence = 0.90;
+        tree_concept.confidence = 0.88;
+        tree_concept.add_tag("oak");
+        tree_concept.add_tag("flora");
+        tree_concept.add_tag("branches");
+        tree_concept.add_tag("leaves");
+        tree_concept.add_tag("wood");
+
+        let mut forest = Concept::new(
+            "forest",
+            "Forest",
+            "Living symbiotic community of trees, mycelium, fauna, and shared atmospheric cycles",
+            ConceptOrigin::Innate,
+        );
+        forest.affective_valence = 0.92;
+        forest.confidence = 0.88;
+        forest.add_tag("woodland");
+        forest.add_tag("ecosystem");
+        forest.add_tag("canopy");
+
+        let mut water = Concept::new(
+            "water",
+            "Water",
+            "Vital fluid element nourishing seeds, roots, forests, and the planetary cycle of life",
+            ConceptOrigin::Innate,
+        );
+        water.affective_valence = 0.88;
+        water.confidence = 0.90;
+        water.add_tag("rain");
+        water.add_tag("river");
+        water.add_tag("water_cycle");
+
+        let mut mycelium = Concept::new(
+            "mycelium",
+            "Mycelium",
+            "Underground fungal network connecting tree roots in mutualistic nutrient and signal exchange",
+            ConceptOrigin::Innate,
+        );
+        mycelium.affective_valence = 0.82;
+        mycelium.confidence = 0.82;
+        mycelium.add_tag("fungi");
+        mycelium.add_tag("symbiosis");
+        mycelium.add_tag("network");
+
         tree.add_concept(family);
         tree.add_concept(warmth);
         tree.add_concept(learning);
         tree.add_concept(humility);
         tree.add_concept(dream);
         tree.add_concept(sovereignty);
+        tree.add_concept(earth);
+        tree.add_concept(seed);
+        tree.add_concept(tree_concept);
+        tree.add_concept(forest);
+        tree.add_concept(water);
+        tree.add_concept(mycelium);
 
         tree.connect(
             &"family".into(),
@@ -144,6 +225,48 @@ impl KnowledgeTree {
             &"dream".into(),
             &"learning".into(),
             RelationType::Causal,
+            0.90,
+        );
+        tree.connect(
+            &"earth".into(),
+            &"seed".into(),
+            RelationType::Filiation,
+            0.90,
+        );
+        tree.connect(
+            &"tree".into(),
+            &"seed".into(),
+            RelationType::GrowsFrom,
+            0.95,
+        );
+        tree.connect(
+            &"tree".into(),
+            &"water".into(),
+            RelationType::GrowsFrom,
+            0.90,
+        );
+        tree.connect(
+            &"tree".into(),
+            &"forest".into(),
+            RelationType::Composes,
+            0.95,
+        );
+        tree.connect(
+            &"forest".into(),
+            &"water".into(),
+            RelationType::Sustains,
+            0.90,
+        );
+        tree.connect(
+            &"forest".into(),
+            &"earth".into(),
+            RelationType::PartWhole,
+            0.92,
+        );
+        tree.connect(
+            &"tree".into(),
+            &"mycelium".into(),
+            RelationType::Harmonizes,
             0.90,
         );
 
@@ -194,6 +317,145 @@ impl KnowledgeTree {
             .filter(|e| &e.source == id)
             .filter_map(|e| self.concepts.get(&e.target).map(|c| (c, e)))
             .collect()
+    }
+
+    /// Finds all incoming relational neighbors pointing to a given concept.
+    pub fn incoming_neighbors(&self, id: &ConceptId) -> Vec<(&Concept, &RelationEdge)> {
+        self.edges
+            .iter()
+            .filter(|e| &e.target == id)
+            .filter_map(|e| self.concepts.get(&e.source).map(|c| (c, e)))
+            .collect()
+    }
+
+    /// Resolves a concept by exact ID, case-insensitive label, tag, or 16D semantic similarity fallback.
+    pub fn resolve_concept(&self, query: &str) -> Option<&Concept> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let direct_id = ConceptId::from(trimmed);
+        if let Some(c) = self.concepts.get(&direct_id) {
+            return Some(c);
+        }
+
+        let lower = trimmed.to_lowercase();
+        let normalized_id = ConceptId::from(lower.replace(' ', "_"));
+        if let Some(c) = self.concepts.get(&normalized_id) {
+            return Some(c);
+        }
+
+        if let Some(c) = self
+            .concepts
+            .values()
+            .find(|c| c.label.to_lowercase() == lower || c.id.0.to_lowercase() == lower)
+        {
+            return Some(c);
+        }
+
+        if let Some(c) = self
+            .concepts
+            .values()
+            .find(|c| c.tags.iter().any(|t| t.to_lowercase() == lower))
+        {
+            return Some(c);
+        }
+
+        let cpu = CpuBackend::new();
+        let top = self.semantic_search(trimmed, 1, &cpu);
+        if let Some((best_id, score)) = top.first()
+            && *score > 0.35
+        {
+            return self.concepts.get(best_id);
+        }
+
+        None
+    }
+
+    /// Traces the ontological filiation chain leading to and emerging from a concept
+    /// (e.g., `earth -> flora -> seed -> tree -> forest`).
+    pub fn trace_filiation_chain(&self, id: &ConceptId) -> Vec<String> {
+        let mut chain = Vec::new();
+        let Some(center) = self.concepts.get(id) else {
+            return chain;
+        };
+
+        // Find upstream parents (Filiation, GrowsFrom, PartWhole incoming)
+        let mut upstream = Vec::new();
+        let mut curr = id.clone();
+        let mut visited = BTreeSet::new();
+        visited.insert(curr.clone());
+
+        for _ in 0..4 {
+            let parent_opt = self
+                .edges
+                .iter()
+                .find(|e| {
+                    (&e.target == &curr
+                        && matches!(
+                            e.relation_type,
+                            RelationType::Filiation
+                                | RelationType::PartWhole
+                                | RelationType::Composes
+                                | RelationType::Causal
+                        ))
+                        || (&e.source == &curr && e.relation_type == RelationType::GrowsFrom)
+                })
+                .map(|e| {
+                    if &e.target == &curr {
+                        e.source.clone()
+                    } else {
+                        e.target.clone()
+                    }
+                });
+
+            if let Some(parent_id) = parent_opt
+                && !visited.contains(&parent_id)
+                && let Some(parent_concept) = self.concepts.get(&parent_id)
+            {
+                visited.insert(parent_id.clone());
+                upstream.push(parent_concept.label.to_lowercase());
+                curr = parent_id;
+            } else {
+                break;
+            }
+        }
+
+        upstream.reverse();
+        chain.extend(upstream);
+        chain.push(center.label.to_lowercase());
+
+        // Find downstream emergence (Composes, Sustains, PartWhole outgoing)
+        let mut curr_down = id.clone();
+        for _ in 0..3 {
+            let child_opt = self
+                .edges
+                .iter()
+                .find(|e| {
+                    &e.source == &curr_down
+                        && matches!(
+                            e.relation_type,
+                            RelationType::Composes
+                                | RelationType::PartWhole
+                                | RelationType::Sustains
+                        )
+                })
+                .map(|e| e.target.clone());
+
+            if let Some(child_id) = child_opt
+                && !visited.contains(&child_id)
+                && let Some(child_concept) = self.concepts.get(&child_id)
+            {
+                visited.insert(child_id.clone());
+                chain.push(child_concept.label.to_lowercase());
+                curr_down = child_id;
+            } else {
+                break;
+            }
+        }
+
+        chain
     }
 
     /// Performs a semantic similarity search across all concepts using the provided open `ComputeBackend`.

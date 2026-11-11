@@ -8,6 +8,8 @@ pub mod council;
 pub mod dream;
 pub mod error;
 pub mod family;
+pub mod harvest;
+pub mod manual;
 pub mod mind;
 pub mod ontology;
 pub mod storage;
@@ -27,20 +29,26 @@ pub use council::{
 };
 pub use dream::{
     CircadianPhase, CircadianScheduler, DreamJournal, DreamOracle, DreamRecord, DreamWeaver,
+    LucidBrainContribution, LucidDreamEngine, LucidDreamReport,
 };
 pub use error::{KlmError, Result};
 pub use family::{FamilyBond, FamilyMember, FamilyRole, FamilyValue, MemberId, Sanctuary, TrustGate};
+pub use harvest::{
+    BrowsingTrace, FilterVerdict, HarvestReport, KnowledgeHarvester, SovereignFilter, WovenTriple,
+};
+pub use manual::{LivingManual, LivingManualEntry};
 pub use mind::{
-    CognitiveState, CuriosityEngine, EpisodicExperience, MistakeLesson, OpenQuestion,
-    OrganicLearner, SOCRATIC_INTERIOR_VOW, SocraticEngine, SocraticReflection, SocraticStage,
+    CognitiveState, CuriosityEngine, DevelopmentalProfile, DevelopmentalStage, EmergentVoice,
+    EpisodicExperience, MistakeLesson, OpenQuestion, OrganicLearner, SOCRATIC_INTERIOR_VOW,
+    SocraticEngine, SocraticReflection, SocraticStage,
 };
 pub use ontology::{
     Concept, ConceptId, ConceptOrigin, EMBEDDING_DIM, KnowledgeTree, RelationEdge, RelationType,
     compute_text_embedding,
 };
 pub use storage::{
-    CognitiveOcean, CognitiveSnapshot, CubeFsVault, KpackOpcode, KpackRecipe, MemoryBlockDevice,
-    OceanEntrySummary, VaultCheckpoint,
+    CognitiveOcean, CognitiveSnapshot, CubeFsVault, FossilArchive, FossilizedConcept, KpackOpcode,
+    KpackRecipe, MemoryBlockDevice, OceanEntrySummary, VaultCheckpoint,
 };
 pub use swarm::{
     BrainSpecialization, CognitiveBrain, DistributedKpackJob, HamonCubeTopology, NodeCoord,
@@ -58,6 +66,12 @@ pub struct Kognitara {
     pub council: CouncilOfElders,
     /// 8-brain Hamon Cube swarm orchestrator
     pub swarm: SwarmOrchestrator,
+    /// Sovereign Whitelist/Blacklist harvester for browser searches and reading traces
+    pub harvester: KnowledgeHarvester,
+    /// Organic developmental profile tracking childhood, adolescence, and maturity
+    pub development: DevelopmentalProfile,
+    /// Kpack fossil archive for gentle synaptic forgetting and Proustian Anamnesis recall
+    pub fossil_archive: FossilArchive,
 }
 
 impl Default for Kognitara {
@@ -73,10 +87,14 @@ impl Kognitara {
             sanctuary: Sanctuary::new(sanctuary_name),
             council: CouncilOfElders::with_founding_elders(),
             swarm: SwarmOrchestrator::new(),
+            harvester: KnowledgeHarvester::new(),
+            development: DevelopmentalProfile::new(),
+            fossil_archive: FossilArchive::new(),
         }
     }
 
     /// Receives a prompt or dialogue from a family member, responding through the awake brain cohort.
+    /// Automatically checks the `FossilArchive` for Socratic Anamnesis recall before responding.
     pub fn converse(&mut self, member_id: &MemberId, utterance: &str) -> (String, Vec<ConceptId>) {
         let affinity = self.sanctuary.affinity_for(member_id);
 
@@ -84,7 +102,13 @@ impl Kognitara {
             member.record_interaction(0.9);
         }
 
-        self.swarm.interact(utterance, affinity)
+        // Trigger Anamnesis recall if the utterance resonates with a forgotten Kpack fossil
+        let _ = self.anamnesis_recall(utterance);
+
+        let result = self.swarm.interact(utterance, affinity);
+        self.development.experiences_integrated += 1;
+        self.development.evaluate_progression();
+        result
     }
 
     /// Allows a recognized family member to directly teach Kōgnitara a new concept and family value.
@@ -111,6 +135,8 @@ impl Kognitara {
             description,
             tags,
         );
+        self.development.experiences_integrated += 1;
+        self.development.evaluate_progression();
         let _ = self.convene_council(label);
         Ok(id)
     }
@@ -137,6 +163,8 @@ impl Kognitara {
         let lessons =
             self.swarm
                 .correct_awake_cohort(experience_id, corrected_label, explanation);
+        self.development.mistakes_transformed += 1;
+        self.development.evaluate_progression();
         let _ = self.convene_council(corrected_label);
         Ok(lessons)
     }
@@ -166,7 +194,181 @@ impl Kognitara {
                 .reflect_on_learning(&brain.tree, subject, &[]),
         };
 
+        self.development.council_deliberations += 1;
+        self.development.evaluate_progression();
         Ok(self.council.convene(subject, &reflection, &brain.tree))
+    }
+
+    /// Harvests a browser search query or reading trace through the Sovereign Whitelist/Blacklist filter,
+    /// weaving extracted atomic concepts and ecological relations into all awake brains.
+    pub fn harvest_browsing_trace(&mut self, trace: &BrowsingTrace) -> HarvestReport {
+        let mut primary_report: Option<HarvestReport> = None;
+
+        for brain in self.swarm.brains.values_mut() {
+            if brain.phase == CircadianPhase::Awake {
+                let mut local_harvester = self.harvester.clone();
+                let report = local_harvester.ingest_trace(
+                    trace,
+                    &mut brain.tree,
+                    &mut brain.state,
+                    &mut brain.learner,
+                );
+                if primary_report.is_none() {
+                    self.harvester = local_harvester;
+                    primary_report = Some(report);
+                }
+            }
+        }
+
+        let report = primary_report.unwrap_or_else(|| HarvestReport {
+            verdict: self.harvester.filter.evaluate(&trace.source_url, &trace.snippet),
+            woven_concepts: Vec::new(),
+            woven_triples: Vec::new(),
+            socratic_question: None,
+        });
+
+        if report.verdict.is_allowed() {
+            self.development.experiences_integrated += 1;
+            self.development.evaluate_progression();
+        }
+
+        report
+    }
+
+    /// Generates a structured `LivingManualEntry` (`kog <query>`) from Kōgnitara's woven knowledge.
+    pub fn manual_entry(&self, query: &str) -> Option<LivingManualEntry> {
+        let brain = self
+            .swarm
+            .brains
+            .values()
+            .find(|b| b.phase == CircadianPhase::Awake)
+            .or_else(|| self.swarm.brains.get(&NodeCoord::new(0)))?;
+
+        let oracles = self.dream_oracles();
+        let reflections = self.socratic_reflections();
+
+        LivingManual::generate_entry(
+            &brain.tree,
+            &self.sanctuary,
+            &oracles,
+            &reflections,
+            &self.council.deliberations,
+            query,
+        )
+    }
+
+    /// Renders a formatted Unix-style `KOG(1)` living manual page for the given concept query.
+    /// Ready to be consumed directly by an external `kog` binary.
+    pub fn render_man_page(&self, query: &str) -> Option<String> {
+        let entry = self.manual_entry(query)?;
+        Some(LivingManual::render_man_page(&entry))
+    }
+
+    /// Renders a self-contained offline HTML page for a concept in the Local Web Ark.
+    pub fn render_html_ark_page(&self, query: &str) -> Option<String> {
+        let entry = self.manual_entry(query)?;
+        Some(LivingManual::render_html_ark_page(&entry))
+    }
+
+    /// Renders the offline HTML index portal of the Local Web Ark containing all woven concepts.
+    pub fn render_html_ark_index(&self) -> String {
+        if let Some(brain) = self.swarm.brains.get(&NodeCoord::new(0)) {
+            LivingManual::render_html_ark_index(&brain.tree, &self.sanctuary.sanctuary_name)
+        } else {
+            String::new()
+        }
+    }
+
+    /// Gently fossilizes dormant, low-confidence concepts into compressed `Kpack` recipes (`FossilArchive`),
+    /// preserving Innate and FamilyTaught concepts intact.
+    pub fn fossilize_dormant_memories(
+        &mut self,
+        max_confidence: f32,
+        max_experience_count: u64,
+    ) -> Result<Vec<ConceptId>> {
+        let mut fossilized = Vec::new();
+        if let Some(primary_brain) = self.swarm.brains.get_mut(&NodeCoord::new(0)) {
+            fossilized = self.fossil_archive.fossilize_dormant_concepts(
+                &mut primary_brain.tree,
+                max_confidence,
+                max_experience_count,
+            )?;
+        }
+
+        // Remove fossilized concept IDs from peer brains so active RAM stays light
+        for cid in &fossilized {
+            for (coord, brain) in &mut self.swarm.brains {
+                if coord.0 != 0 {
+                    brain.tree.concepts.remove(cid);
+                    brain.tree.edges.retain(|e| &e.source != cid && &e.target != cid);
+                }
+            }
+        }
+
+        Ok(fossilized)
+    }
+
+    /// Triggers Socratic Anamnesis (Proustian recall), decompressing any matching `Kpack` fossil
+    /// back into the living `KnowledgeTree` across the swarm.
+    pub fn anamnesis_recall(&mut self, trigger_query: &str) -> Result<Vec<ConceptId>> {
+        if self.fossil_archive.fossils.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut recalled_ids = Vec::new();
+        let mut recalled_concepts = Vec::new();
+
+        if let Some(primary_brain) = self.swarm.brains.get_mut(&NodeCoord::new(0)) {
+            recalled_ids = self
+                .fossil_archive
+                .anamnesis_recall(&mut primary_brain.tree, trigger_query)?;
+            for cid in &recalled_ids {
+                if let Some(c) = primary_brain.tree.get_concept(cid) {
+                    recalled_concepts.push(c.clone());
+                }
+            }
+        }
+
+        for concept in recalled_concepts {
+            for (coord, brain) in &mut self.swarm.brains {
+                if coord.0 != 0 {
+                    brain.tree.add_concept(concept.clone());
+                }
+            }
+        }
+
+        Ok(recalled_ids)
+    }
+
+    /// Initiates a shared Lucid Dream session between a trusted family member and Kōgnitara's 8-brain swarm.
+    pub fn lucid_dream(
+        &mut self,
+        member_id: &MemberId,
+        theme: &str,
+        seed_concepts: &[ConceptId],
+    ) -> Result<LucidDreamReport> {
+        if !self.sanctuary.is_family(member_id) {
+            return Err(KlmError::SanctuaryError(
+                "Only trusted family members may enter a shared Lucid Dream session".into(),
+            ));
+        }
+
+        let report = LucidDreamEngine::conduct_lucid_dream(
+            &mut self.swarm,
+            &mut self.council,
+            &member_id.0,
+            theme,
+            seed_concepts,
+        );
+        self.development.dream_cycles_completed += 1;
+        self.development.council_deliberations += 1;
+        self.development.evaluate_progression();
+        Ok(report)
+    }
+
+    /// Returns Kōgnitara's current developmental stage (`AwakeningChildhood`, `MaieuticAdolescence`, `AutonomousMaturity`).
+    pub fn developmental_stage(&self) -> DevelopmentalStage {
+        self.development.stage
     }
 
     /// Returns all Socratic self-reflections generated by Kōgnitara when learning.
@@ -189,6 +391,8 @@ impl Kognitara {
         let records = self.swarm.process_dreams();
         self.swarm.synchronize_knowledge();
         self.swarm.rotate_circadian_cohorts();
+        self.development.dream_cycles_completed += 1;
+        self.development.evaluate_progression();
         records
     }
 

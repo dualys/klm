@@ -47,6 +47,10 @@ pub enum ConceptOrigin {
     EmpiricalTrial,
     /// Spontaneous analogical leap between existing concepts
     SpontaneousAnalogy,
+    /// Harvested from sovereign whitelisted research or browsing traces
+    HarvestedSeed { source_domain: String },
+    /// Reawakened from a Kpack-compressed fossil through Socratic Anamnesis
+    ReawakenedFossil { fossil_hash: String },
 }
 
 /// Projects arbitrary text or symbolic features into a unit-normalized 16D embedding vector

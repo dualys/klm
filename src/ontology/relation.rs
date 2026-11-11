@@ -23,6 +23,14 @@ pub enum RelationType {
     Contradiction,
     /// Compositional or holistic part-to-whole link
     PartWhole,
+    /// Organic genesis or developmental growth (e.g., tree GrowsFrom seed)
+    GrowsFrom,
+    /// Collective composition (e.g., tree Composes forest)
+    Composes,
+    /// Ecological, systemic, or vital nourishment (e.g., forest Sustains water_cycle)
+    Sustains,
+    /// Symbiotic or dialectical harmony between concepts
+    Harmonizes,
 }
 
 /// A weighted, plastic directed edge between two concepts in the Knowledge Tree.

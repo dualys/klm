@@ -1,4 +1,5 @@
 pub mod curiosity;
+pub mod development;
 pub mod experience;
 pub mod learning;
 pub mod reflection;
@@ -6,6 +7,7 @@ pub mod socratic;
 pub mod state;
 
 pub use curiosity::{CuriosityEngine, OpenQuestion};
+pub use development::{DevelopmentalProfile, DevelopmentalStage, EmergentVoice};
 pub use experience::EpisodicExperience;
 pub use learning::OrganicLearner;
 pub use reflection::MistakeLesson;
