@@ -181,7 +181,7 @@ fn main() {
     println!("============================================================");
 
     // If running in non-interactive environment, conclude gracefully
-    if !std::io::stdin().is_terminal() {
+    if !io::stdin().is_terminal() {
         println!("[+] Non-interactive execution finished successfully.");
         return;
     }

@@ -27,14 +27,14 @@ pub enum KlmError {
 impl fmt::Display for KlmError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            KlmError::OntologyError(msg) => write!(f, "Ontology Error: {}", msg),
-            KlmError::CognitiveError(msg) => write!(f, "Cognitive Error: {}", msg),
-            KlmError::DreamError(msg) => write!(f, "Dream Engine Error: {}", msg),
-            KlmError::SanctuaryError(msg) => write!(f, "Sanctuary Error: {}", msg),
-            KlmError::SwarmError(msg) => write!(f, "Swarm/Cube Error: {}", msg),
-            KlmError::ComputeError(msg) => write!(f, "Compute Error: {}", msg),
-            KlmError::StorageError(msg) => write!(f, "Storage/Kpack Error: {}", msg),
-            KlmError::Io(msg) => write!(f, "Platform I/O Error: {}", msg),
+            KlmError::OntologyError(msg) => write!(f, "Ontology Error: {msg}"),
+            KlmError::CognitiveError(msg) => write!(f, "Cognitive Error: {msg}"),
+            KlmError::DreamError(msg) => write!(f, "Dream Engine Error: {msg}"),
+            KlmError::SanctuaryError(msg) => write!(f, "Sanctuary Error: {msg}"),
+            KlmError::SwarmError(msg) => write!(f, "Swarm/Cube Error: {msg}"),
+            KlmError::ComputeError(msg) => write!(f, "Compute Error: {msg}"),
+            KlmError::StorageError(msg) => write!(f, "Storage/Kpack Error: {msg}"),
+            KlmError::Io(msg) => write!(f, "Platform I/O Error: {msg}"),
         }
     }
 }
@@ -51,7 +51,7 @@ impl From<std::io::Error> for KlmError {
 
 impl From<serde_json::Error> for KlmError {
     fn from(err: serde_json::Error) -> Self {
-        KlmError::StorageError(alloc::format!("JSON Serialization Error: {}", err))
+        KlmError::StorageError(format!("JSON Serialization Error: {err}"))
     }
 }
 

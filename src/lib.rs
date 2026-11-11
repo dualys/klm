@@ -2,18 +2,30 @@
 
 extern crate alloc;
 
+#[doc = "This module provides functionality related to time and date operations."]
 pub mod clock;
+#[doc = "This module provides functionality related to computation and processing."]
 pub mod compute;
+#[doc = "This module provides functionality related to council operations."]
 pub mod council;
+#[doc = "This module provides functionality related to dream operations."]
 pub mod dream;
+#[doc = "This module provides functionality related to error handling."]
 pub mod error;
+#[doc = "This module provides functionality related to family operations."]
 pub mod family;
-pub mod harvest;
+#[doc = "This module provides functionality related to manual operations."]
 pub mod manual;
+#[doc = "This module provides functionality related to mind operations."]
 pub mod mind;
+#[doc = "This module provides functionality related to ontology operations."]
 pub mod ontology;
+#[doc = "This module provides functionality related to storage operations."]
 pub mod storage;
+#[doc = "This module provides functionality related to swarm operations."]
 pub mod swarm;
+#[doc = "This module provides functionality related to harvest operations."]
+pub mod harvest;
 
 use alloc::string::String;
 use alloc::vec::Vec;
