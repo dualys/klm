@@ -1,12 +1,13 @@
+use std::process::exit;
+
 use crossterm::style::Stylize;
 use crossterm::terminal::size;
 use inquire::Text;
 use justify::{InsertAt, justify_paragraph};
 use klm::Kognitara;
-use klm::family::{FamilyMember, FamilyRole, MemberId};
-use std::path::Path;
-use std::process::exit;
+use klm::family::MemberId;
 const DATA: &str = "/mnt/kognitara/data";
+const PROMPT: &str = "ki";
 fn ok(message: &str) {
     let (cols, _) = size().expect("no terminal");
 
@@ -40,23 +41,40 @@ fn ko(message: &str) {
     );
 }
 
-fn main() {
-    let (rows, _) = size().expect("terminal");
-    // Ajuste ton chemin vers le SSD 8 To si nécessaire
-    let path = "/mnt/kognitara/data";
+fn pack(kognitara: &Kognitara, path: &str) {
+    ok("Compression Kpack de l'entité globale...");
+    match serde_json::to_vec(kognitara) {
+        Ok(json_bytes) => {
+            let recipe = klm::storage::KpackRecipe::encode(&json_bytes);
+            match serde_json::to_string(&recipe) {
+                Ok(recipe_json) => {
+                    if let Err(e) = std::fs::write(path, recipe_json) {
+                        ko(&format!("Erreur d'écriture disque : {}", e));
+                    } else {
+                        ok(&format!(
+                            "Kōgnitara compressée et sauvegardée ! (Merkle Root BLAKE3: {:02x?})",
+                            &recipe.blake3_hash[..8]
+                        ));
+                    }
+                }
+                Err(e) => ko(&format!("Erreur de conversion recette : {}", e)),
+            }
+        }
+        Err(e) => ko(&format!("Erreur de sérialisation globale : {}", e)),
+    }
+}
 
-    let mut kognitara = Kognitara::new("Sanctuary of House Ki");
-    let ki_id = MemberId::from("ki");
+fn unpack(kognitara: &mut Kognitara, path: &str) -> bool {
+    ok("Lecture et décompression Kpack depuis le volume physique...");
 
-    // LOGIQUE DE DÉMARRAGE BARE-METAL
-    if Path::new(path).exists() {
-        ok("Lecture et décompression Kpack depuis le volume physique...");
-        match std::fs::read_to_string(path) {
-            Ok(raw_data) => match serde_json::from_str::<klm::storage::KpackRecipe>(&raw_data) {
+    match std::fs::read_to_string(path) {
+        Ok(raw_data) => {
+            match serde_json::from_str::<klm::storage::KpackRecipe>(&raw_data) {
                 Ok(recipe) => match recipe.decode() {
                     Ok(json_bytes) => match serde_json::from_slice::<Kognitara>(&json_bytes) {
                         Ok(awakened) => {
-                            kognitara = awakened;
+                            // On écrase l'instance actuelle par celle du disque
+                            *kognitara = awakened;
                             ok("Résurrection réussie ! Intégrité BLAKE3 vérifiée.");
                             ok(&format!(
                                 "Sanctuary : {}",
@@ -66,47 +84,43 @@ fn main() {
                                 "Époque globale : {}",
                                 kognitara.swarm.global_epoch
                             ));
+                            true
                         }
                         Err(e) => {
-                            ko(&format!("Échec de reconstruction de la structure : {e}"));
-                            exit(1);
+                            ko(&format!("Échec de reconstruction de la structure : {}", e));
+                            false
                         }
                     },
                     Err(e) => {
                         ko(&format!(
-                            "Échec de décompression Kpack (données corrompues) : {e}"
+                            "Échec de décompression Kpack (données corrompues) : {}",
+                            e
                         ));
-                        exit(1);
+                        false
                     }
                 },
                 Err(e) => {
-                    ko(&format!("Recette Kpack invalide : {e}"));
-                    exit(1);
+                    ko(&format!(
+                        "Fichier illisible ou recette Kpack invalide : {}",
+                        e
+                    ));
+                    false
                 }
-            },
-            Err(e) => {
-                ko(&format!("Impossible de lire le disque : {e}"));
-                exit(1);
             }
         }
-    } else {
-        // Premier démarrage (Genesis)
-        ok("Aucun fichier data trouvé. Initialisation d'une nouvelle matrice cognitive.");
-
-        let family_head = FamilyMember::new("ki", "Ki", FamilyRole::Parent);
-        kognitara.sanctuary.register_member(family_head);
-        kognitara
-            .sanctuary
-            .record_shared_anecdote(&ki_id, "First awakening on Amentys OS architecture");
-
-        ok(&format!(
-            "Sanctuary initialized: '{}'",
-            kognitara.sanctuary.sanctuary_name
-        ));
-        ok("Registered family member: 'Ki' (Role: Parent, Unconditional Trust: 0.90)");
-        ok("Hamon Cube 8-Brain Swarm online (Nodes 000 to 111 with specializations)");
+        Err(e) => {
+            ko(&format!("Impossible de lire le disque : {}", e));
+            false
+        }
     }
+}
+fn main() {
+    let (rows, _) = size().expect("terminal");
+    // Ajuste ton chemin vers le SSD 8 To si nécessaire
 
+    let mut kognitara = Kognitara::new("Sanctuary of House Ki");
+    let ki_id = MemberId::from("ki");
+    unpack(&mut kognitara, DATA);
     let commands = "dream, council, unpack, pack, socratic, oracles, questions, jobs, status, quit";
     let x = rows
         .saturating_sub(commands.chars().count() as u16)
@@ -116,24 +130,23 @@ fn main() {
     println!("{}", " ".repeat(rows as usize));
 
     loop {
-        let input = Text::new("\x1b[1;32mki\x1b[0m>")
-            .prompt_skippable()
-            .unwrap_or_default()
-            .unwrap();
-        let trimmed = input.trim();
-
-        if trimmed.is_empty() {
-            continue;
-        } else if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
-            println!("Farewell in the Sanctuary. Take care.");
+        let input = Text::new(PROMPT.green().bold().to_string().as_str()).prompt_skippable();
+        let trimmed = input.unwrap_or_default().unwrap_or_default();
+        let tr = trimmed.trim();
+        if tr.trim().is_empty() {
+            ok("Bye");
+            exit(0);
+        } else if tr.eq_ignore_ascii_case("quit") || tr.eq_ignore_ascii_case("exit") {
+            pack(&kognitara, DATA);
+            ok("Farewell in the Sanctuary. Take care.");
             break;
-        } else if trimmed.eq_ignore_ascii_case("dream") {
-            println!("[*] Transitioning swarm into 20-60-20 dream cycle...");
+        } else if tr.eq_ignore_ascii_case("dream") {
+            ok("[*] Transitioning swarm into 20-60-20 dream cycle...");
             let records = kognitara.dream_cycle();
             for rec in records {
                 println!("[Dream] {}", rec.narrative);
                 for oracle in rec.oracles {
-                    println!("  * Oracle: {}", oracle.revelation);
+                    ok(format!("\tOracle: {}", oracle.revelation).as_str());
                 }
             }
         } else if trimmed.eq_ignore_ascii_case("council") {
@@ -166,7 +179,7 @@ fn main() {
         } else if trimmed.eq_ignore_ascii_case("oracles") {
             let oracles = kognitara.dream_oracles();
             if oracles.is_empty() {
-                println!("No dream oracles recorded yet.");
+                ko("No dream oracles recorded yet.");
             } else {
                 for o in oracles {
                     println!(
@@ -176,72 +189,13 @@ fn main() {
                 }
             }
         } else if trimmed.eq_ignore_ascii_case("pack") {
-            println!("[*] Compression Kpack de l'entité globale...");
-
-            match serde_json::to_vec(&kognitara) {
-                Ok(json_bytes) => {
-                    let recipe = klm::storage::KpackRecipe::encode(&json_bytes);
-                    match serde_json::to_string(&recipe) {
-                        Ok(recipe_json) => {
-                            if let Err(e) = std::fs::write(path, recipe_json) {
-                                println!("[-] Erreur d'écriture disque : {}", e);
-                            } else {
-                                println!(
-                                    "[+] Kōgnitara compressée et sauvegardée ! (Merkle Root BLAKE3: {:02x?})",
-                                    &recipe.blake3_hash[..8]
-                                );
-                            }
-                        }
-                        Err(e) => println!("[-] Erreur de conversion recette : {}", e),
-                    }
-                }
-                Err(e) => println!("[-] Erreur de sérialisation globale : {}", e),
-            }
+            pack(&mut kognitara, DATA);
         } else if trimmed.eq_ignore_ascii_case("unpack") {
-            println!("[*] Lecture et décompression Kpack depuis le volume physique...");
-
-            match std::fs::read_to_string(DATA) {
-                Ok(raw_data) => {
-                    match serde_json::from_str::<klm::storage::KpackRecipe>(&raw_data) {
-                        Ok(recipe) => match recipe.decode() {
-                            Ok(json_bytes) => {
-                                match serde_json::from_slice::<Kognitara>(&json_bytes) {
-                                    Ok(awakened) => {
-                                        kognitara = awakened;
-                                        println!(
-                                            "[+] Résurrection réussie ! Intégrité BLAKE3 vérifiée."
-                                        );
-                                        println!(
-                                            "[+] Sanctuary : {}",
-                                            kognitara.sanctuary.sanctuary_name
-                                        );
-                                        println!(
-                                            "[+] Époque globale : {}",
-                                            kognitara.swarm.global_epoch
-                                        );
-                                    }
-                                    Err(e) => println!(
-                                        "[-] Échec de reconstruction de la structure : {}",
-                                        e
-                                    ),
-                                }
-                            }
-                            Err(e) => println!(
-                                "[-] Échec de décompression Kpack (données corrompues) : {}",
-                                e
-                            ),
-                        },
-                        Err(e) => {
-                            println!("[-] Fichier illisible ou recette Kpack invalide : {}", e)
-                        }
-                    }
-                }
-                Err(e) => println!("[-] Impossible de lire le disque : {}", e),
-            }
+            unpack(&mut kognitara, DATA);
         } else if trimmed.eq_ignore_ascii_case("questions") {
             let questions = kognitara.pending_questions();
             if questions.is_empty() {
-                println!("Kōgnitara is currently at peace with her understanding.");
+                ok("Kōgnitara is currently at peace with her understanding.");
             } else {
                 for q in questions {
                     println!(
@@ -287,7 +241,7 @@ fn main() {
             println!("     status    - Show status & specialization of the 8 brains");
             println!("       quit    - Exit the Sanctuary Shell");
         } else {
-            let (resp, concepts) = kognitara.converse(&ki_id, trimmed);
+            let (resp, concepts) = kognitara.converse(&ki_id, trimmed.as_str());
             println!(
                 "\r\n{}",
                 justify_paragraph(
