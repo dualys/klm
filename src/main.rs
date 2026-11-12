@@ -1,11 +1,10 @@
-use std::process::exit;
-
 use crossterm::style::Stylize;
 use crossterm::terminal::size;
 use inquire::Text;
 use justify::{InsertAt, justify_paragraph};
 use klm::Kognitara;
 use klm::family::MemberId;
+use std::process::exit;
 const DATA: &str = "/mnt/kognitara/data";
 const PROMPT: &str = "ki";
 fn ok(message: &str) {
@@ -42,19 +41,36 @@ fn ko(message: &str) {
 }
 
 fn pack(kognitara: &Kognitara, path: &str) {
-    ok("Compression Kpack de l'entité globale...");
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    // Récupération de la taille actuelle pour le monitoring
+    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    ok(format!(
+        "Compression Kpack et sauvegarde append-only (Taille du registre : {} octets)...",
+        file_size
+    )
+    .as_str());
+
     match serde_json::to_vec(kognitara) {
         Ok(json_bytes) => {
             let recipe = klm::storage::KpackRecipe::encode(&json_bytes);
             match serde_json::to_string(&recipe) {
                 Ok(recipe_json) => {
-                    if let Err(e) = std::fs::write(path, recipe_json) {
-                        ko(&format!("Erreur d'écriture disque : {}", e));
-                    } else {
-                        ok(&format!(
-                            "Kōgnitara compressée et sauvegardée ! (Merkle Root BLAKE3: {:02x?})",
-                            &recipe.blake3_hash[..8]
-                        ));
+                    // Ouverture en mode "append" (ajout à la fin).
+                    // Le fichier grandira indéfiniment sur le SSD.
+                    match OpenOptions::new().create(true).append(true).open(path) {
+                        Ok(mut file) => {
+                            if let Err(e) = writeln!(file, "{}", recipe_json) {
+                                ko(&format!("Erreur d'écriture disque : {}", e));
+                            } else {
+                                ok(&format!(
+                                    "Kōgnitara ajoutée au registre ! (Merkle Root BLAKE3: {:02x?})",
+                                    &recipe.blake3_hash[..8]
+                                ));
+                            }
+                        }
+                        Err(e) => ko(&format!("Impossible d'ouvrir le volume en append : {}", e)),
                     }
                 }
                 Err(e) => ko(&format!("Erreur de conversion recette : {}", e)),
@@ -65,53 +81,66 @@ fn pack(kognitara: &Kognitara, path: &str) {
 }
 
 fn unpack(kognitara: &mut Kognitara, path: &str) -> bool {
-    ok("Lecture et décompression Kpack depuis le volume physique...");
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
 
-    match std::fs::read_to_string(path) {
-        Ok(raw_data) => {
-            match serde_json::from_str::<klm::storage::KpackRecipe>(&raw_data) {
-                Ok(recipe) => match recipe.decode() {
-                    Ok(json_bytes) => match serde_json::from_slice::<Kognitara>(&json_bytes) {
-                        Ok(awakened) => {
-                            // On écrase l'instance actuelle par celle du disque
-                            *kognitara = awakened;
-                            ok("Résurrection réussie ! Intégrité BLAKE3 vérifiée.");
-                            ok(&format!(
-                                "Sanctuary : {}",
-                                kognitara.sanctuary.sanctuary_name
-                            ));
-                            ok(&format!(
-                                "Époque globale : {}",
-                                kognitara.swarm.global_epoch
-                            ));
-                            true
-                        }
-                        Err(e) => {
-                            ko(&format!("Échec de reconstruction de la structure : {}", e));
-                            false
-                        }
-                    },
-                    Err(e) => {
-                        ko(&format!(
-                            "Échec de décompression Kpack (données corrompues) : {}",
-                            e
-                        ));
-                        false
-                    }
-                },
-                Err(e) => {
-                    ko(&format!(
-                        "Fichier illisible ou recette Kpack invalide : {}",
-                        e
+    ok("Restauration depuis le registre append-only...");
+
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            ko(&format!("Impossible de lire le registre : {}", e));
+            return false;
+        }
+    };
+
+    let reader = BufReader::new(file);
+    let mut last_valid_recipe: Option<klm::storage::KpackRecipe> = None;
+    let mut lines_count = 0;
+
+    // Balayage du registre complet : on ne conserve en RAM que la dernière ligne valide
+    for line in reader.lines().flatten() {
+        if let Ok(recipe) = serde_json::from_str::<klm::storage::KpackRecipe>(&line) {
+            last_valid_recipe = Some(recipe);
+            lines_count += 1;
+        }
+    }
+
+    if let Some(recipe) = last_valid_recipe {
+        match recipe.decode() {
+            Ok(json_bytes) => match serde_json::from_slice::<Kognitara>(&json_bytes) {
+                Ok(awakened) => {
+                    *kognitara = awakened;
+                    ok(&format!(
+                        "Résurrection réussie depuis l'itération {} du registre !",
+                        lines_count
                     ));
+                    ok(&format!(
+                        "Sanctuary : {}",
+                        kognitara.sanctuary.sanctuary_name
+                    ));
+                    ok(&format!(
+                        "Époque globale : {}",
+                        kognitara.swarm.global_epoch
+                    ));
+                    true
+                }
+                Err(e) => {
+                    ko(&format!("Échec de reconstruction de la structure : {}", e));
                     false
                 }
+            },
+            Err(e) => {
+                ko(&format!(
+                    "Échec de décompression Kpack (données corrompues) : {}",
+                    e
+                ));
+                false
             }
         }
-        Err(e) => {
-            ko(&format!("Impossible de lire le disque : {}", e));
-            false
-        }
+    } else {
+        ko("Aucune recette Kpack valide trouvée dans le registre.");
+        false
     }
 }
 fn main() {

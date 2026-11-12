@@ -3,6 +3,8 @@
 
 extern crate alloc;
 
+use crate::error::{KlmError, Result};
+use crate::ontology::concept::Concept;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -11,9 +13,8 @@ use jinshu::router::NounIndex;
 use jinshu::storage::{BlockDevice, StorageEngine};
 use noun::Noun;
 use serde::{Deserialize, Serialize};
-
-use crate::error::{KlmError, Result};
-use crate::ontology::concept::Concept;
+use std::fs::{File, OpenOptions};
+use std::os::unix::fs::FileExt;
 
 /// In-memory 4096-byte page block device implementing `jinshu::storage::BlockDevice`.
 /// Compatible with `no_std` + `alloc` for Amentys OS and user-space testing.
@@ -23,6 +24,39 @@ pub struct MemoryBlockDevice {
     blocks: RefCell<BTreeMap<u64, [u8; 4096]>>,
 }
 
+pub struct PhysicalBlockDevice {
+    file: File,
+}
+
+impl PhysicalBlockDevice {
+    pub fn new(path: &str) -> std::io::Result<Self> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(path)?;
+        Ok(Self { file })
+    }
+}
+
+impl BlockDevice for PhysicalBlockDevice {
+    fn write_node(&self, lba: u64, data_phys_addr: u64) {
+        let offset = lba * 4096;
+        let data_slice = unsafe { core::slice::from_raw_parts(data_phys_addr as *const u8, 4096) };
+        self.file
+            .write_at(data_slice, offset)
+            .expect("Erreur I/O écriture brute");
+    }
+
+    fn read_node(&self, lba: u64, dest_phys_addr: u64) {
+        let offset = lba * 4096;
+        let dest_slice =
+            unsafe { core::slice::from_raw_parts_mut(dest_phys_addr as *mut u8, 4096) };
+        self.file
+            .read_at(dest_slice, offset)
+            .expect("Erreur I/O lecture brute");
+    }
+}
 impl MemoryBlockDevice {
     /// Creates a new empty virtual NVMe block device.
     pub fn new() -> Self {
