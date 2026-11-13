@@ -10,6 +10,7 @@ use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::path::Path;
 const DATA: &str = "/mnt/kognitara/data";
 const TAGS_FILE: &str = "/mnt/kognitara/tags.json";
 fn cli() -> Command {
@@ -513,9 +514,12 @@ fn main() {
         env::var("KOGNITARA_SANCTUARY_NAME")
             .unwrap_or_else(|_| "Sanctuary of House Ki".to_string()),
     );
-    // 1. Toujours restaurer la mémoire (l'océan Jinshu) avant d'agir
-    unpack(&mut kognitara, DATA);
-
+    if Path::new(DATA).exists() {
+        unpack(&mut kognitara, DATA);
+    } else {
+        pack(&kognitara, DATA);
+        unpack(&mut kognitara, DATA);
+    }
     // 2. S'assurer que le propriétaire du terminal (USER) est le fondateur
     let current_user = ki();
     if !kognitara.sanctuary.is_family(&current_user) {
