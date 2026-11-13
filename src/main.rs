@@ -1,14 +1,300 @@
+use clap::Arg;
+use clap::{ArgMatches, Command};
 use crossterm::style::Stylize;
 use crossterm::terminal::size;
-use indicatif::{ProgressBar, ProgressStyle};
-use inquire::Text;
-use justify::{InsertAt, justify_paragraph};
+use inquire::{Editor, Text};
 use klm::Kognitara;
 use klm::family::MemberId;
-use std::process::exit;
-use std::thread::sleep;
-use std::time::Duration;
+use std::collections::BTreeMap;
+use std::env;
+use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader, BufWriter, Write};
 const DATA: &str = "/mnt/kognitara/data";
+const TAGS_FILE: &str = "/mnt/kognitara/tags.json";
+fn cli() -> Command {
+    Command::new(env!("CARGO_PKG_NAME"))
+        .about(env!("CARGO_PKG_DESCRIPTION"))
+        .version(env!("CARGO_PKG_VERSION"))
+        .subcommand(Command::new("dream").about("Put kognitara in dream mode"))
+        .subcommand(Command::new("family").about("Manage Kognitara family"))
+        .subcommand(Command::new("status").about("Display Kognitara status"))
+        .subcommand(Command::new("teach").about("Teach Kognitara"))
+        .subcommand(Command::new("oracles").about("Display dream oracles"))
+        .subcommand(
+            Command::new("tag")
+                .about("Manage kognitara tree")
+                .subcommands(&[
+                    Command::new("list").about("List available tags"),
+                    Command::new("create").about("Create a new tag"),
+                    Command::new("delete").about("Delete a tag"),
+                    Command::new("export")
+                        .about("export a tag")
+                        .arg(
+                            Arg::new("tag")
+                                .required(true)
+                                .help("The kognitara tag to export"),
+                        )
+                        .arg(
+                            Arg::new("destination")
+                                .required(true)
+                                .help("The kognitara tag to destination file"),
+                        ),
+                ]),
+        )
+        .subcommand(
+            Command::new("council")
+                .about("Convene the Council of Elders")
+                .arg(clap::Arg::new("topic").default_value("Sanctuary Wisdom & Socratic Path")),
+        )
+}
+
+fn export_state(tag_name: &str, dest_path: &str) {
+    if tag_name.is_empty() || dest_path.is_empty() {
+        ko("Veuillez fournir un nom de tag et un chemin de destination.");
+        return;
+    }
+
+    // 1. Charger le dictionnaire des tags pour trouver la ligne cible
+    let tags_content = match fs::read_to_string(TAGS_FILE) {
+        Ok(c) => c,
+        Err(_) => {
+            ko("Impossible de lire le fichier des tags. Aucun tag n'existe ?");
+            return;
+        }
+    };
+
+    let tags: BTreeMap<String, usize> = match serde_json::from_str(&tags_content) {
+        Ok(t) => t,
+        Err(_) => {
+            ko("Le fichier des tags est corrompu ou invalide.");
+            return;
+        }
+    };
+
+    let target_lines = match tags.get(tag_name) {
+        Some(&lines) => lines,
+        None => {
+            ko(&format!("Le tag '{}' n'existe pas.", tag_name));
+            return;
+        }
+    };
+
+    ok(&format!(
+        "[*] Préparation de l'export du tag '{}' ({} itérations)...",
+        tag_name, target_lines
+    ));
+
+    // 2. Ouvrir le registre source en lecture et la destination en écriture
+    let src_file = match File::open(DATA) {
+        Ok(f) => f,
+        Err(e) => {
+            ko(&format!(
+                "Impossible d'ouvrir le registre source ({}) : {}",
+                DATA, e
+            ));
+            return;
+        }
+    };
+
+    let dest_file = match File::create(dest_path) {
+        Ok(f) => f,
+        Err(e) => {
+            ko(&format!(
+                "Impossible de créer le fichier d'export '{}' : {}",
+                dest_path, e
+            ));
+            return;
+        }
+    };
+
+    let reader = BufReader::new(src_file);
+    let mut writer = BufWriter::new(dest_file);
+
+    // 3. Copier exactement `target_lines` lignes (les recettes Kpack)
+    let mut copied_count = 0;
+    for line in reader.lines() {
+        if copied_count >= target_lines {
+            break; // On arrête la copie exactement au moment du tag
+        }
+
+        if let Ok(l) = line {
+            if let Err(e) = writeln!(writer, "{}", l) {
+                ko(&format!("Erreur lors de l'écriture dans l'export : {}", e));
+                return;
+            }
+            copied_count += 1;
+        }
+    }
+
+    // On force l'écriture sur le disque
+    if let Err(e) = writer.flush() {
+        ko(&format!("Erreur lors du flush de l'export : {}", e));
+        return;
+    }
+
+    ok(&format!(
+        "Bifurcation réussie ! La timeline de Kōgnitara jusqu'à '{}' a été exportée vers '{}'.",
+        tag_name, dest_path
+    ));
+}
+
+fn tag_state(tag_name: &str) {
+    if tag_name.is_empty() {
+        ko("You must provide a tag name (e.g., 'tag v1.0').");
+        return;
+    }
+
+    // 1. Compter le nombre de lignes (itérations) dans le registre append-only
+    let lines_count = if let Ok(file) = std::fs::File::open(DATA) {
+        use std::io::{BufRead, BufReader};
+        BufReader::new(file).lines().count()
+    } else {
+        ko("Failed to read the main data registry.");
+        return;
+    };
+
+    if lines_count == 0 {
+        ko("The registry is empty, nothing to tag.");
+        return;
+    }
+
+    // 2. Charger les tags existants (s'il y en a)
+    let mut tags: BTreeMap<String, usize> = if let Ok(content) = fs::read_to_string(TAGS_FILE) {
+        serde_json::from_str(&content).unwrap_or_else(|_| BTreeMap::new())
+    } else {
+        BTreeMap::new()
+    };
+
+    // 3. Ajouter le nouveau tag et sauvegarder
+    tags.insert(tag_name.to_string(), lines_count);
+
+    match serde_json::to_string_pretty(&tags) {
+        Ok(json) => {
+            if let Err(e) = fs::write(TAGS_FILE, json) {
+                ko(&format!("Failed to write tags file: {}", e));
+            } else {
+                ok(&format!(
+                    "Tag '{}' created at iteration {}!",
+                    tag_name, lines_count
+                ));
+            }
+        }
+        Err(e) => ko(&format!("Failed to serialize tags: {}", e)),
+    }
+}
+fn list_tags() {
+    if let Ok(content) = fs::read_to_string(TAGS_FILE) {
+        if let Ok(tags) = serde_json::from_str::<BTreeMap<String, usize>>(&content) {
+            if tags.is_empty() {
+                ko("No tags found.");
+                return;
+            }
+            ok("Here are the saved historical tags:");
+            for (name, iteration) in tags {
+                println!("  * [{}] -> iteration {}", name, iteration);
+            }
+        } else {
+            ko("Tags file is corrupted.");
+        }
+    } else {
+        ko("No tags have been created yet.");
+    }
+}
+fn show_status(kognitara: &Kognitara) {
+    println!("[Status] Swarm Epoch: {}", kognitara.swarm.global_epoch);
+    for (coord, brain) in &kognitara.swarm.brains {
+        println!(
+            "  Node #{:03b} ({:?}): Phase={:?}, Tension={:.2}, Concepts={}",
+            coord.0,
+            brain.specialization,
+            brain.phase,
+            brain.state.cognitive_tension,
+            brain.tree.concepts.len()
+        );
+    }
+}
+
+fn show_oracles(kognitara: &Kognitara) {
+    let oracles = kognitara.dream_oracles();
+    if oracles.is_empty() {
+        ko("No dream oracles recorded yet.");
+    } else {
+        ok("Here are the revelations woven during dreams:");
+        for o in oracles {
+            println!(
+                "  [{}] {} (Resonance: {:.2})",
+                o.oracle_id, o.revelation, o.resonance_strength
+            );
+        }
+    }
+}
+
+fn convene_council(kognitara: &mut Kognitara, topic: &str) {
+    ok(&format!(
+        "[*] Convening the Council of Elders on: '{}'",
+        topic
+    ));
+    match kognitara.convene_council(topic) {
+        Ok(delib) => {
+            println!(
+                "\n[Council of Elders] Verdict: {:?} (Harmony: {:.2})",
+                delib.verdict, delib.consensus_harmony
+            );
+            println!("  {}\n", delib.collective_socratic_guidance);
+
+            for c in delib.counsels {
+                println!(
+                    "  * {} ({:?}): \"{}\"",
+                    c.elder_name, c.archetype, c.socratic_question
+                );
+            }
+        }
+        Err(e) => ko(&format!("The Council could not convene: {}", e)),
+    }
+}
+
+fn interact(kognitara: &mut Kognitara) {
+    loop {
+        let todo = Text::new("").prompt().expect("");
+        let trimmed = todo.trim();
+
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if trimmed.eq_ignore_ascii_case("pack") {
+            pack(kognitara, DATA);
+        } else if trimmed.eq_ignore_ascii_case("unpack") {
+            unpack(kognitara, DATA);
+        } else if trimmed.eq_ignore_ascii_case("teach") {
+            teach_kognitara(kognitara);
+        } else if trimmed.eq_ignore_ascii_case("status") {
+            show_status(kognitara);
+        } else if trimmed.eq_ignore_ascii_case("oracles") {
+            show_oracles(kognitara);
+        } else if trimmed.to_lowercase().starts_with("council") {
+            let mut topic = "Sanctuary Wisdom & Socratic Path";
+            if trimmed.len() > 7 {
+                topic = trimmed[7..].trim();
+            }
+            convene_council(kognitara, topic);
+        // NOUVEAU BLOC TAG :
+        } else if trimmed.to_lowercase().starts_with("tag ") {
+            let tag_name = trimmed[4..].trim();
+            tag_state(tag_name);
+        } else if trimmed.eq_ignore_ascii_case("tags") {
+            list_tags();
+        } else if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
+            pack(kognitara, DATA);
+            break;
+        } else {
+            ko(
+                "Commands are: dream, family, status, oracles, council, teach, tag, tags, pack, unpack, quit",
+            );
+        }
+    }
+}
 fn ok(message: &str) {
     let (cols, _) = size().expect("no terminal");
 
@@ -145,171 +431,102 @@ fn unpack(kognitara: &mut Kognitara, path: &str) -> bool {
         false
     }
 }
-fn main() {
-    let (rows, _) = size().expect("terminal");
-    // Ajuste ton chemin vers le SSD 8 To si nécessaire
 
-    let mut kognitara = Kognitara::new("Sanctuary of House Ki");
-    let ki_id = MemberId::from("ki");
-    unpack(&mut kognitara, DATA);
-    let commands = "dream, council, unpack, pack, socratic, oracles, questions, jobs, status, quit";
-    let x = rows
-        .saturating_sub(commands.chars().count() as u16)
-        .saturating_div(2);
-    println!("{}", " ".repeat(rows as usize));
-    println!("{}{commands}", " ".repeat(x as usize));
-    println!("{}", " ".repeat(rows as usize));
+fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
+    match matches.subcommand() {
+        Some(("tag", sub)) => match sub.subcommand() {
+            Some(("list", _)) => {
+                list_tags();
+            }
+            Some(("create", _)) => {
+                tag_state(Text::new("Tag version:").prompt().expect("").as_str());
+            }
+            Some(("export", sub)) => {
+                let tag = sub.get_one::<String>("tag").expect("tag it's required");
+                let destination = sub
+                    .get_one::<String>("destination")
+                    .expect("destination it's required");
+                export_state(tag, destination);
+            }
+            _ => {
+                ko("tags commands are: list or create");
+            }
+        },
+        Some(("pack", _)) => {
+            pack(kognitara, DATA);
+        }
+        Some(("unpack", _)) => {
+            unpack(kognitara, DATA);
+        }
+        Some(("status", _)) => {
+            show_status(kognitara);
+        }
+        Some(("oracles", _)) => {
+            show_oracles(kognitara);
+        }
+        Some(("council", sub_matches)) => {
+            let topic = sub_matches
+                .get_one::<String>("topic")
+                .map(|s| s.as_str())
+                .unwrap_or("Sanctuary Wisdom & Socratic Path");
 
-    loop {
-        let input = Text::new("").prompt_skippable();
-        let trimmed = input.unwrap_or_default().unwrap_or_default();
-        let tr = trimmed.trim();
-        if tr.trim().is_empty() {
-            ok("Bye");
-            exit(0);
-        } else if tr.eq_ignore_ascii_case("quit") || tr.eq_ignore_ascii_case("exit") {
-            pack(&kognitara, DATA);
-            ok("Farewell in the Sanctuary. Take care.");
-            break;
-        } else if tr.eq_ignore_ascii_case("dream") {
-            ok("Transitioning swarm into 20-60-20 dream cycle...");
+            convene_council(kognitara, topic);
 
-            let pb = ProgressBar::new(100);
-            pb.set_style(
-                ProgressStyle::with_template("{spinner:.white} {msg} [{bar:40.white}] {pos}%")
-                    .unwrap()
-                    .progress_chars("██ "),
-            );
-
-            // On lance le VRAI cycle de rêve, en lui passant ce qu'il doit faire à chaque étape
-            let records = kognitara.dream_cycle(|pos, msg| {
-                pb.set_message(msg.to_string());
-                pb.set_position(pos as u64);
-                sleep(Duration::from_millis(800));
-            });
-
-            pb.finish_with_message("Éveil de Kōgnitara.");
-
-            // Affichage des oracles une fois le rêve terminé
-            for rec in records {
-                println!("[Dream] {}", rec.narrative);
-                for oracle in rec.oracles {
-                    ok(format!("\tOracle: {}", oracle.revelation).as_str());
-                }
-            }
-        } else if trimmed.eq_ignore_ascii_case("council") {
-            if let Ok(delib) = kognitara.convene_council("Sanctuary Wisdom & Socratic Path") {
-                println!(
-                    "[Council of Elders] Verdict: {:?} (Harmony: {:.2})",
-                    delib.verdict, delib.consensus_harmony
-                );
-                println!("  {}", delib.collective_socratic_guidance);
-                for c in delib.counsels {
-                    println!(
-                        "  * {} ({:?}): \"{}\"",
-                        c.elder_name, c.archetype, c.socratic_question
-                    );
-                }
-            }
-        } else if trimmed.eq_ignore_ascii_case("socratic") {
-            let reflections = kognitara.socratic_reflections();
-            if reflections.is_empty() {
-                println!("No Socratic reflections recorded yet.");
-            } else {
-                for r in reflections {
-                    println!(
-                        "  [{}] ({:?}, Humility {:.2}) {}",
-                        r.id, r.stage, r.humility_index, r.interior_monologue
-                    );
-                    println!("       Maieutic Question: {}", r.maieutic_question);
-                }
-            }
-        } else if trimmed.eq_ignore_ascii_case("oracles") {
-            let oracles = kognitara.dream_oracles();
-            if oracles.is_empty() {
-                ko("No dream oracles recorded yet.");
-            } else {
-                for o in oracles {
-                    println!(
-                        "  [{}] {} (Resonance: {:.2})",
-                        o.oracle_id, o.revelation, o.resonance_strength
-                    );
-                }
-            }
-        } else if trimmed.eq_ignore_ascii_case("pack") {
-            pack(&kognitara, DATA);
-        } else if trimmed.eq_ignore_ascii_case("unpack") {
-            unpack(&mut kognitara, DATA);
-        } else if trimmed.eq_ignore_ascii_case("questions") {
-            let questions = kognitara.pending_questions();
-            if questions.is_empty() {
-                ok("Kōgnitara is currently at peace with her understanding.");
-            } else {
-                for q in questions {
-                    println!(
-                        "  [{}] (Urgency {:.2}) {}",
-                        q.id, q.urgency, q.question_text
-                    );
-                }
-            }
-        } else if trimmed.eq_ignore_ascii_case("jobs") {
-            if let Ok(snap) = kognitara.create_snapshot() {
-                if let Ok(bytes) = snap.raw_bytes() {
-                    let job = kognitara.execute_cube_job(&bytes);
-                    println!(
-                        "[Hamon Cube] Executed 8-node job over {} bytes -> 3D Merkle Root: {:02x?}",
-                        job.total_uncompressed_bytes,
-                        &job.cube_merkle_root[..8]
-                    );
-                }
-            }
-        } else if trimmed.eq_ignore_ascii_case("status") {
-            println!("[Status] Swarm Epoch: {}", kognitara.swarm.global_epoch);
-            for (coord, brain) in &kognitara.swarm.brains {
-                println!(
-                    "  Node #{:03b} ({:?}): Phase={:?}, Tension={:.2}, Concepts={}",
-                    coord.0,
-                    brain.specialization,
-                    brain.phase,
-                    brain.state.cognitive_tension,
-                    brain.tree.concepts.len()
-                );
-            }
-        } else if trimmed.eq_ignore_ascii_case("help") {
-            println!("Available commands:");
-            println!("  <message>    - Talk directly with Kōgnitara");
-            println!("      dream    - Advance circadian phase and weave dreams");
-            println!("       pack    - Backup knowledge tree on disk");
-            println!("     unpack    - Restore disk from backup");
-            println!("    council    - Convene the Council of Elders for Socratic deliberation");
-            println!("   socratic    - View Kōgnitara's interior Socratic reflections");
-            println!("    oracles    - View revelations woven during dreams");
-            println!("  questions    - View humble curiosity questions from Kōgnitara");
-            println!("   cube-job    - Dispatch a Kpack job across the 8 Hamon Cube nodes");
-            println!("     status    - Show status & specialization of the 8 brains");
-            println!("       quit    - Exit the Sanctuary Shell");
-        } else {
-            let (resp, concepts) = kognitara.converse(&ki_id, trimmed.as_str());
-            println!(
-                "\r\n{}",
-                justify_paragraph(
-                    &resp,
-                    &justify::Settings {
-                        justify_last_line: true,
-                        hyphenate_overflow: true,
-                        width: 100,
-                        insert_at: InsertAt::Left,
-                        wcwidth: true,
-                        ignore_spaces: true,
-                        newline: "\n",
-                        hyphen: "\n",
-                        separator: "\n"
-                    }
-                )
-            );
-            if !concepts.is_empty() {
-                println!("  [Mind resonating with: {} concepts]", concepts.len());
-            }
+            // On sauvegarde l'état car le Conseil a écrit dans les chroniques
+            pack(kognitara, DATA);
+        }
+        _ => {
+            interact(kognitara);
+            ok("bye");
         }
     }
+}
+
+fn ki() -> MemberId {
+    MemberId::from(env::var("USER").expect("USER it's required"))
+}
+
+fn teach_kognitara(kognitara: &mut Kognitara) {
+    let label = Text::new("What label do you want")
+        .prompt()
+        .expect("label it's require");
+    let course = Editor::new("What do you want to teach?")
+        .prompt()
+        .expect("Failed to get full course");
+    let tags = Text::new("Enter tags separate by a comma")
+        .prompt()
+        .expect("tags it's requiredd");
+    let t = tags.split(",").collect::<Vec<&str>>();
+    if kognitara
+        .teach_concept(&ki(), &label.to_lowercase(), &label, &course, &t)
+        .is_ok()
+    {
+        ok("I've understand");
+        pack(kognitara, DATA);
+    } else {
+        ko("failed to learn");
+    }
+}
+
+fn main() {
+    let mut kognitara = Kognitara::new(
+        env::var("KOGNITARA_SANCTUARY_NAME")
+            .unwrap_or_else(|_| "Sanctuary of House Ki".to_string()),
+    );
+    // 1. Toujours restaurer la mémoire (l'océan Jinshu) avant d'agir
+    unpack(&mut kognitara, DATA);
+
+    // 2. S'assurer que le propriétaire du terminal (USER) est le fondateur
+    let current_user = ki();
+    if !kognitara.sanctuary.is_family(&current_user) {
+        let founder = klm::family::FamilyMember::new(
+            current_user.0.clone(), // ID
+            current_user.0.clone(), // Nom
+            klm::family::FamilyRole::Parent,
+        );
+        kognitara.sanctuary.register_member(founder);
+    }
+    let app = cli();
+    let matches = app.get_matches();
+    kog(&matches, &mut kognitara);
 }
