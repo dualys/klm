@@ -25,3 +25,4 @@ serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 inquire = { version = "0.9.4", features = ["console", "date", "editor"] }
 crossterm = "0.29.0"
 clap = "4.6.7"
+indicatif = "0.18.6"

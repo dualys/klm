@@ -1,7 +1,10 @@
 use clap::Arg;
 use clap::{ArgMatches, Command};
+use crossterm::cursor::MoveTo;
+use crossterm::execute;
 use crossterm::style::Stylize;
-use crossterm::terminal::size;
+use crossterm::terminal::{Clear, ClearType, size};
+use indicatif::{ProgressBar, ProgressStyle};
 use inquire::{Editor, Text};
 use klm::Kognitara;
 use klm::family::MemberId;
@@ -9,10 +12,15 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write, stdout};
 use std::path::Path;
+use std::thread::sleep;
+use std::time::Duration;
 const DATA: &str = "/mnt/kognitara/data";
 const TAGS_FILE: &str = "/mnt/kognitara/tags.json";
+fn clear() {
+    execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0)).expect("");
+}
 fn cli() -> Command {
     Command::new(env!("CARGO_PKG_NAME"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
@@ -255,11 +263,42 @@ fn convene_council(kognitara: &mut Kognitara, topic: &str) {
     }
 }
 
+fn dream(kognitara: &mut Kognitara) {
+    ok("Transitioning swarm into 20-60-20 dream cycle...");
+    let pb = ProgressBar::new(100);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.white} [{elapsed_precise}] [{bar:40.white}] {pos:>3}% {msg}",
+        )
+        .unwrap()
+        .progress_chars("██ "),
+    );
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let records = kognitara.dream_cycle(|pos, msg| {
+        pb.set_position(pos as u64);
+        pb.set_message(msg.to_string());
+        sleep(Duration::from_millis(600));
+    });
+
+    // Indispensable : terminer et faire disparaître proprement la barre
+    // AVANT de commencer à imprimer les résultats du rêve.
+    pb.finish_and_clear();
+
+    ok("Éveil de Kōgnitara — Dream cycle finished");
+
+    // Affichage des oracles
+    for rec in records {
+        ok(format!("{}", rec.narrative).as_str());
+        for oracle in rec.oracles {
+            ok(format!("Oracle: {}", oracle.revelation).as_str());
+        }
+    }
+}
 fn interact(kognitara: &mut Kognitara) {
     loop {
         let todo = Text::new("").prompt().expect("");
         let trimmed = todo.trim();
-
         if trimmed.is_empty() {
             continue;
         }
@@ -274,13 +313,14 @@ fn interact(kognitara: &mut Kognitara) {
             show_status(kognitara);
         } else if trimmed.eq_ignore_ascii_case("oracles") {
             show_oracles(kognitara);
+        } else if trimmed.eq_ignore_ascii_case("clear") || trimmed.eq_ignore_ascii_case("cls") {
+            clear();
         } else if trimmed.to_lowercase().starts_with("council") {
             let mut topic = "Sanctuary Wisdom & Socratic Path";
             if trimmed.len() > 7 {
                 topic = trimmed[7..].trim();
             }
             convene_council(kognitara, topic);
-        // NOUVEAU BLOC TAG :
         } else if trimmed.to_lowercase().starts_with("tag ") {
             let tag_name = trimmed[4..].trim();
             tag_state(tag_name);
@@ -289,10 +329,8 @@ fn interact(kognitara: &mut Kognitara) {
         } else if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
             pack(kognitara, DATA);
             break;
-        } else {
-            ko(
-                "Commands are: dream, family, status, oracles, council, teach, tag, tags, pack, unpack, quit",
-            );
+        } else if trimmed.eq_ignore_ascii_case("dream") {
+            dream(kognitara);
         }
     }
 }
@@ -455,6 +493,9 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
         },
         Some(("pack", _)) => {
             pack(kognitara, DATA);
+        }
+        Some(("dream", _)) => {
+            dream(kognitara);
         }
         Some(("unpack", _)) => {
             unpack(kognitara, DATA);
