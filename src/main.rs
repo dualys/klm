@@ -1,12 +1,14 @@
 use crossterm::style::Stylize;
 use crossterm::terminal::size;
+use indicatif::{ProgressBar, ProgressStyle};
 use inquire::Text;
 use justify::{InsertAt, justify_paragraph};
 use klm::Kognitara;
 use klm::family::MemberId;
 use std::process::exit;
+use std::thread::sleep;
+use std::time::Duration;
 const DATA: &str = "/mnt/kognitara/data";
-const PROMPT: &str = "ki";
 fn ok(message: &str) {
     let (cols, _) = size().expect("no terminal");
 
@@ -159,7 +161,7 @@ fn main() {
     println!("{}", " ".repeat(rows as usize));
 
     loop {
-        let input = Text::new(PROMPT.green().bold().to_string().as_str()).prompt_skippable();
+        let input = Text::new("").prompt_skippable();
         let trimmed = input.unwrap_or_default().unwrap_or_default();
         let tr = trimmed.trim();
         if tr.trim().is_empty() {
@@ -170,8 +172,25 @@ fn main() {
             ok("Farewell in the Sanctuary. Take care.");
             break;
         } else if tr.eq_ignore_ascii_case("dream") {
-            ok("[*] Transitioning swarm into 20-60-20 dream cycle...");
-            let records = kognitara.dream_cycle();
+            ok("Transitioning swarm into 20-60-20 dream cycle...");
+
+            let pb = ProgressBar::new(100);
+            pb.set_style(
+                ProgressStyle::with_template("{spinner:.white} {msg} [{bar:40.white}] {pos}%")
+                    .unwrap()
+                    .progress_chars("██ "),
+            );
+
+            // On lance le VRAI cycle de rêve, en lui passant ce qu'il doit faire à chaque étape
+            let records = kognitara.dream_cycle(|pos, msg| {
+                pb.set_message(msg.to_string());
+                pb.set_position(pos as u64);
+                sleep(Duration::from_millis(800));
+            });
+
+            pb.finish_with_message("Éveil de Kōgnitara.");
+
+            // Affichage des oracles une fois le rêve terminé
             for rec in records {
                 println!("[Dream] {}", rec.narrative);
                 for oracle in rec.oracles {
@@ -218,7 +237,7 @@ fn main() {
                 }
             }
         } else if trimmed.eq_ignore_ascii_case("pack") {
-            pack(&mut kognitara, DATA);
+            pack(&kognitara, DATA);
         } else if trimmed.eq_ignore_ascii_case("unpack") {
             unpack(&mut kognitara, DATA);
         } else if trimmed.eq_ignore_ascii_case("questions") {

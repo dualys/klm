@@ -14,6 +14,8 @@ pub mod dream;
 pub mod error;
 #[doc = "This module provides functionality related to family operations."]
 pub mod family;
+#[doc = "This module provides functionality related to harvest operations."]
+pub mod harvest;
 #[doc = "This module provides functionality related to manual operations."]
 pub mod manual;
 #[doc = "This module provides functionality related to mind operations."]
@@ -24,8 +26,6 @@ pub mod ontology;
 pub mod storage;
 #[doc = "This module provides functionality related to swarm operations."]
 pub mod swarm;
-#[doc = "This module provides functionality related to harvest operations."]
-pub mod harvest;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -44,7 +44,9 @@ pub use dream::{
     LucidBrainContribution, LucidDreamEngine, LucidDreamReport,
 };
 pub use error::{KlmError, Result};
-pub use family::{FamilyBond, FamilyMember, FamilyRole, FamilyValue, MemberId, Sanctuary, TrustGate};
+pub use family::{
+    FamilyBond, FamilyMember, FamilyRole, FamilyValue, MemberId, Sanctuary, TrustGate,
+};
 pub use harvest::{
     BrowsingTrace, FilterVerdict, HarvestReport, KnowledgeHarvester, SovereignFilter, WovenTriple,
 };
@@ -138,15 +140,10 @@ impl Kognitara {
             ));
         }
 
-        self.sanctuary
-            .entrust_value(member_id, label, description);
-        let id = self.swarm.teach_awake_cohort(
-            &member_id.0,
-            concept_id,
-            label,
-            description,
-            tags,
-        );
+        self.sanctuary.entrust_value(member_id, label, description);
+        let id = self
+            .swarm
+            .teach_awake_cohort(&member_id.0, concept_id, label, description, tags);
         self.development.experiences_integrated += 1;
         self.development.evaluate_progression();
         let _ = self.convene_council(label);
@@ -172,9 +169,9 @@ impl Kognitara {
             member.record_interaction(0.95);
         }
 
-        let lessons =
-            self.swarm
-                .correct_awake_cohort(experience_id, corrected_label, explanation);
+        let lessons = self
+            .swarm
+            .correct_awake_cohort(experience_id, corrected_label, explanation);
         self.development.mistakes_transformed += 1;
         self.development.evaluate_progression();
         let _ = self.convene_council(corrected_label);
@@ -233,7 +230,10 @@ impl Kognitara {
         }
 
         let report = primary_report.unwrap_or_else(|| HarvestReport {
-            verdict: self.harvester.filter.evaluate(&trace.source_url, &trace.snippet),
+            verdict: self
+                .harvester
+                .filter
+                .evaluate(&trace.source_url, &trace.snippet),
             woven_concepts: Vec::new(),
             woven_triples: Vec::new(),
             socratic_question: None,
@@ -312,7 +312,10 @@ impl Kognitara {
             for (coord, brain) in &mut self.swarm.brains {
                 if coord.0 != 0 {
                     brain.tree.concepts.remove(cid);
-                    brain.tree.edges.retain(|e| &e.source != cid && &e.target != cid);
+                    brain
+                        .tree
+                        .edges
+                        .retain(|e| &e.source != cid && &e.target != cid);
                 }
             }
         }
@@ -399,12 +402,29 @@ impl Kognitara {
     }
 
     /// Advances the circadian cycle and executes dreams for cohorts currently in deep sleep.
-    pub fn dream_cycle(&mut self) -> Vec<DreamRecord> {
+    /// Accepte un callback pour informer l'interface de la progression en temps réel.
+    pub fn dream_cycle<F>(&mut self, mut progress_callback: F) -> Vec<DreamRecord>
+    where
+        F: FnMut(u8, &str), // F est une fonction qui prend un pourcentage (u8) et un message (&str)
+    {
+        progress_callback(10, "Drowsiness Ramp");
+
+        // 1. Les cerveaux rêvent
         let records = self.swarm.process_dreams();
+
+        progress_callback(60, "Deep Dream");
+
+        // 2. Synchronisation des découvertes sur le cube
         self.swarm.synchronize_knowledge();
+
+        progress_callback(90, "Crystallization");
+
+        // 3. Rotation des cohortes (réveil et endormissement)
         self.swarm.rotate_circadian_cohorts();
         self.development.dream_cycles_completed += 1;
         self.development.evaluate_progression();
+
+        progress_callback(100, "Dream cycle completed.");
         records
     }
 

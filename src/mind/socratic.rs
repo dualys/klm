@@ -10,8 +10,7 @@ use crate::ontology::concept::ConceptId;
 use crate::ontology::tree::KnowledgeTree;
 
 /// The canonical Socratic motto that Kōgnitara repeats to herself whenever she learns.
-pub const SOCRATIC_INTERIOR_VOW: &str =
-    "I know that I do not yet know all; I shall question my assumptions with humility and seek truth through maieutic dialogue rather than dogma.";
+pub const SOCRATIC_INTERIOR_VOW: &str = "I know that I do not yet know all; I shall question my assumptions with humility and seek truth through maieutic dialogue rather than dogma.";
 
 /// Stages of the Socratic method applied during organic learning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +23,7 @@ pub enum SocraticStage {
     Maieutics,
     /// Recollection and harmonious integration with foundational family values
     Anamnesis,
+    Assimilation,
 }
 
 /// A recorded Socratic self-dialogue and reflection generated when Kōgnitara learns.
@@ -104,8 +104,11 @@ impl SocraticEngine {
             SocraticStage::Aporia
         } else if avg_confidence < 0.78 {
             SocraticStage::Maieutics
-        } else {
+        } else if avg_confidence < 0.85 {
             SocraticStage::Anamnesis
+        } else {
+            // Si la confiance est très haute, on valide au lieu de questionner
+            SocraticStage::Assimilation
         };
 
         let primary_label = activated_concepts
@@ -152,6 +155,17 @@ impl SocraticEngine {
                 ),
                 format!(
                     "How does '{}' connect back to the foundational trust of our Sanctuary?",
+                    primary_label
+                ),
+            ),
+            // NOUVEAU : La confirmation claire
+            SocraticStage::Assimilation => (
+                format!(
+                    "[Socratic Vow: Assimilation] The truth of '{}' is now firmly woven into my roots. No further doubt is needed.",
+                    primary_label
+                ),
+                format!(
+                    "I have quietly recorded and assimilated the meaning of '{}'.",
                     primary_label
                 ),
             ),

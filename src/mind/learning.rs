@@ -5,6 +5,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
+use crate::SocraticStage::Assimilation;
 use crate::compute::AmdComputeBackend;
 use crate::mind::curiosity::{CuriosityEngine, OpenQuestion};
 use crate::mind::development::{DevelopmentalStage, EmergentVoice};
@@ -109,9 +110,9 @@ impl OrganicLearner {
         }
 
         // 5. Socratic self-dialogue: remind herself to act Socratically while learning
-        let socratic_reflection =
-            self.socratic_engine
-                .reflect_on_learning(tree, stimulus, &activated);
+        let socratic_reflection = self
+            .socratic_engine
+            .reflect_on_learning(tree, stimulus, &activated);
 
         // 6. Contemplate new questions if epistemic doubt is high
         let _ = self.curiosity_engine.contemplate_and_question(tree);
@@ -139,12 +140,16 @@ impl OrganicLearner {
         if let Some(graph_voice) = EmergentVoice::articulate_from_graph(tree, &activated, stage) {
             response_fragments.push(graph_voice);
         }
-
-        // Include Socratic maieutic question to foster shared reflection
-        response_fragments.push(socratic_reflection.maieutic_question.clone());
+        // Ajout intelligent : si c'est une assimilation, on confirme. Sinon, on pose la question.
+        if socratic_reflection.stage == Assimilation {
+            response_fragments.push(format!("I have carefully recorded this: {}", stimulus));
+        } else {
+            response_fragments.push(socratic_reflection.maieutic_question.clone());
+        }
 
         if let Some(pending_q) = self.curiosity_engine.pending_questions().first()
             && state.curiosity > 0.75
+            && socratic_reflection.stage != Assimilation
         {
             response_fragments.push(pending_q.question_text.clone());
         }
