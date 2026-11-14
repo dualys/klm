@@ -158,6 +158,30 @@ impl Concept {
         }
     }
 
+    /// Calcule la Masse Gravitationnelle du concept dans le Cosmos Inversé.
+    /// Les concepts Innés et Familiaux agissent comme des Soleils supermassifs ;
+    /// les concepts naissants en périphérie agissent comme des comètes légères.
+    pub fn gravitational_mass(&self, synaptic_degree: usize) -> f32 {
+        let origin_multiplier = match self.origin {
+            ConceptOrigin::Innate => 3.0,
+            ConceptOrigin::FamilyTaught { .. } => 2.5,
+            ConceptOrigin::ReawakenedFossil { .. } => 1.5,
+            ConceptOrigin::HarvestedSeed { .. } => 1.2,
+            ConceptOrigin::EmpiricalTrial | ConceptOrigin::SpontaneousAnalogy => 1.0,
+            ConceptOrigin::DreamSynthesized { .. } => 0.6,
+        };
+        let exp_weight = 1.0 + (self.experience_count.min(50) as f32) * 0.08;
+        let degree_weight = 1.0 + (synaptic_degree as f32) * 0.15;
+        origin_multiplier * self.confidence.max(0.2) * exp_weight * degree_weight
+    }
+
+    /// Facteur de dilatation relativiste du temps (0.10 ..= 1.50).
+    /// Près d'un Soleil supermassif (ex: Family, Water, Sovereignty), le temps ralentit :
+    /// le concept résiste aux perturbations brusques. En périphérie, il mute très vite.
+    pub fn relativistic_time_dilation(&self, synaptic_degree: usize) -> f32 {
+        let mass = self.gravitational_mass(synaptic_degree);
+        (1.5 / (1.0 + mass * 0.25)).clamp(0.10, 1.50)
+    }
     /// Computes the 32-byte Amentys `Noun` cryptographic identity for this concept.
     pub fn noun(&self) -> Noun {
         let mut hasher = blake3::Hasher::new();

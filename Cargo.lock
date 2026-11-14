@@ -466,6 +466,7 @@ name = "klm"
 version = "0.2.0"
 dependencies = [
  "blake3",
+ "chrono",
  "clap",
  "crossterm",
  "cubefs",

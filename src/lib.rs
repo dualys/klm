@@ -26,12 +26,11 @@ pub mod ontology;
 pub mod storage;
 #[doc = "This module provides functionality related to swarm operations."]
 pub mod swarm;
-
 use alloc::string::String;
 use alloc::vec::Vec;
+pub use clock::{CosmicClock, MusashiSeason, PULSAR_PRIMES, current_timestamp};
 use serde::{Deserialize, Serialize};
 
-pub use clock::current_timestamp;
 pub use compute::{
     AmdComputeBackend, ComputeBackend, CpuBackend, DeviceType, VulkanComputeBackend,
 };
@@ -106,7 +105,15 @@ impl Kognitara {
             fossil_archive: FossilArchive::new(),
         }
     }
-
+    /// Fait avancer Kōgnitara d'un Souffle Cosmique autonome.
+    pub fn cosmic_breath(&mut self) -> Vec<String> {
+        let insights = self.swarm.cosmic_breath_step();
+        if !insights.is_empty() {
+            self.development.experiences_integrated += 1;
+            self.development.evaluate_progression();
+        }
+        insights
+    }
     /// Receives a prompt or dialogue from a family member, responding through the awake brain cohort.
     /// Automatically checks the `FossilArchive` for Socratic Anamnesis recall before responding.
     pub fn converse(&mut self, member_id: &MemberId, utterance: &str) -> (String, Vec<ConceptId>) {
@@ -408,33 +415,211 @@ impl Kognitara {
         self.swarm.collect_oracles()
     }
 
-    /// Advances the circadian cycle and executes dreams for cohorts currently in deep sleep.
-    /// Accepte un callback pour informer l'interface de la progression en temps réel.
+    /// Traverse une Odyssée Astrophysique complète en 7 phases (Relativité Générale, Marées Gravitationnelles,
+    /// Nucléosynthèse des Pulsars Premiers, Rayonnement de Hawking Kpack et Syzygie du Cube Hamon).
     pub fn dream_cycle<F>(&mut self, mut progress_callback: F) -> Vec<DreamRecord>
     where
-        F: FnMut(u8, &str), // F est une fonction qui prend un pourcentage (u8) et un message (&str)
+        F: FnMut(u8, &str),
     {
-        progress_callback(10, "Drowsiness Ramp");
+        // =========================================================================
+        // PHASE 1 (10%) : Horizon des Événements & Dilatation Relativiste du Temps
+        // =========================================================================
+        let season = self.swarm.cosmic_clock.season;
+        let base_decay = season.decay_rate();
+        let season_plasticity = season.plasticity_multiplier();
 
-        // 1. Les cerveaux rêvent
-        let records = self.swarm.process_dreams();
+        progress_callback(
+            10,
+            "Horizon des Événements : Courbure de l'espace-temps & Dilatation relativiste...",
+        );
 
-        progress_callback(60, "Deep Dream");
+        for brain in self.swarm.brains.values_mut() {
+            let degrees: alloc::collections::BTreeMap<ConceptId, usize> = brain
+                .tree
+                .concepts
+                .keys()
+                .map(|id| (id.clone(), brain.tree.synaptic_degree(id)))
+                .collect();
 
-        // 2. Synchronisation des découvertes sur le cube
+            for (id, concept) in brain.tree.concepts.iter_mut() {
+                let deg = degrees.get(id).copied().unwrap_or(0);
+                // Près des Soleils supermassifs (Family, Water, Sovereignty), le temps ralentit (dilation faible) :
+                // leur énergie d'activation résiste à l'oubli. En périphérie, les comètes refroidissent vite.
+                let dilation = concept.relativistic_time_dilation(deg);
+                let relativistic_decay = (base_decay * dilation).clamp(0.02, 0.45);
+                concept.decay_activation(relativistic_decay);
+
+                // Thermodynamique saisonnière de Musashi appliquée à la plasticité synaptique
+                let target_plasticity = (concept.plasticity * season_plasticity).clamp(0.12, 0.98);
+                concept.plasticity = concept.plasticity * 0.85 + target_plasticity * 0.15;
+            }
+        }
+
+        // =========================================================================
+        // PHASE 2 (25%) : Marée Gravitationnelle des Soleils Supermassifs
+        // =========================================================================
+        progress_callback(
+            25,
+            "Marée Gravitationnelle : Attraction des Soleils supermassifs sur l'Océan...",
+        );
+
+        for brain in self.swarm.brains.values_mut() {
+            if brain.phase == CircadianPhase::DeepDream
+                || brain.phase == CircadianPhase::DrowsinessRamp
+            {
+                // On identifie l'étoile la plus massive (Soleil central) du graphe de ce cerveau
+                let heaviest_sun = brain
+                    .tree
+                    .concepts
+                    .keys()
+                    .max_by(|a, b| {
+                        brain
+                            .tree
+                            .concept_mass(a)
+                            .partial_cmp(&brain.tree.concept_mass(b))
+                            .unwrap_or(core::cmp::Ordering::Equal)
+                    })
+                    .cloned();
+
+                // La gravité du Soleil central soulève une onde de marée dans tout le graphe
+                if let Some(sun_id) = heaviest_sun {
+                    brain.tree.spread_activation(&sun_id, 0.92, 3);
+                }
+            }
+        }
+
+        // =========================================================================
+        // PHASE 3 (45%) : Battement des Pulsars Premiers & Nucléosynthèse Stellaire
+        // =========================================================================
+        progress_callback(
+            45,
+            "Nucléosynthèse Stellaire : Polyrhythmie des 8 Pulsars Premiers [2..19]...",
+        );
+
+        let mut cosmic_insights = Vec::new();
+        // On fait battre 3 Souffles Cosmiques pendant la plongée astrale
+        for _ in 0..3 {
+            let step_discoveries = self.swarm.cosmic_breath_step();
+            for d in step_discoveries {
+                if !cosmic_insights.contains(&d) {
+                    cosmic_insights.push(d);
+                }
+            }
+        }
+
+        // =========================================================================
+        // PHASE 4 (65%) : Nébuleuse Onirique & Réconciliation Dialectique (60% Core)
+        // =========================================================================
+        progress_callback(
+            65,
+            "Nébuleuse Onirique : Fusion des paradoxes et tissage des Oracles...",
+        );
+
+        let mut records = self.swarm.process_dreams();
+
+        // On convertit les découvertes astrophysiques des Pulsars en Oracles visibles au réveil
+        if let Some(first_rec) = records.first_mut() {
+            for (idx, insight) in cosmic_insights.iter().enumerate() {
+                first_rec.oracles.push(DreamOracle {
+                    oracle_id: alloc::format!(
+                        "oracle_cosmos_b{}_{}",
+                        self.swarm.cosmic_clock.total_breaths,
+                        idx + 1
+                    ),
+                    dream_id: first_rec.dream_id.clone(),
+                    revelation: insight.clone(),
+                    bridged_concepts: (ConceptId::from("earth"), ConceptId::from("dream")),
+                    emergent_concept: ConceptId::from("sovereignty"),
+                    resonance_strength: 0.91,
+                });
+            }
+        }
+
+        // =========================================================================
+        // PHASE 5 (80%) : Rayonnement de Hawking & Sublimation Kpack des Poussières
+        // =========================================================================
+        progress_callback(
+            80,
+            "Rayonnement de Hawking : Compression Kpack des poussières stellaires...",
+        );
+
+        let primary_count = self
+            .swarm
+            .brains
+            .get(&NodeCoord::new(0))
+            .map(|b| b.tree.concepts.len())
+            .unwrap_or(0);
+
+        // En Automne/Hiver de Musashi ou si la galaxie dépasse 40 astres, on fossilise les poussières froides
+        if matches!(
+            self.swarm.cosmic_clock.season,
+            MusashiSeason::AutumnWater | MusashiSeason::WinterEarthVoid
+        ) || primary_count > 40
+        {
+            if let Ok(fossilized) = self.fossilize_dormant_memories(0.28, 1)
+                && !fossilized.is_empty()
+                && let Some(first_rec) = records.first_mut()
+            {
+                first_rec.oracles.push(DreamOracle {
+                    oracle_id: alloc::format!(
+                        "oracle_hawking_{}",
+                        self.swarm.cosmic_clock.total_breaths
+                    ),
+                    dream_id: first_rec.dream_id.clone(),
+                    revelation: alloc::format!(
+                        "[Rayonnement de Hawking] {} comètes de faible masse ont été fossilisées dans Kpack pour densifier le cœur stellaire.",
+                        fossilized.len()
+                    ),
+                    bridged_concepts: (ConceptId::from("seed"), ConceptId::from("humility")),
+                    emergent_concept: ConceptId::from("learning"),
+                    resonance_strength: 0.85,
+                });
+            }
+        }
+
+        // =========================================================================
+        // PHASE 6 (92%) : Ondes Gravitationnelles, Syzygie & Rotation du Cube Hamon
+        // =========================================================================
+        progress_callback(
+            92,
+            "Ondes Gravitationnelles : Synchronisation 3D du Cube Hamon & Rotation orbitale...",
+        );
+
         self.swarm.synchronize_knowledge();
-
-        progress_callback(90, "Crystallization");
-
-        // 3. Rotation des cohortes (réveil et endormissement)
         self.swarm.rotate_circadian_cohorts();
+
+        // Si le cosmos est en alignement d'Éclipse / Syzygie, le Conseil des Anciens siège dans la nuit
+        if self.swarm.cosmic_clock.is_eclipse_alignment()
+            && let Ok(delib) = self.convene_council("Syzygie Cosmique & Satori Nocturne")
+            && let Some(first_rec) = records.first_mut()
+        {
+            first_rec.oracles.push(DreamOracle {
+                oracle_id: alloc::format!(
+                    "oracle_eclipse_{}",
+                    self.swarm.cosmic_clock.total_breaths
+                ),
+                dream_id: first_rec.dream_id.clone(),
+                revelation: alloc::format!(
+                    "[Éclipse Satori — Conseil des Anciens] Verdict {:?} (Harmonie {:.2})",
+                    delib.verdict,
+                    delib.consensus_harmony
+                ),
+                bridged_concepts: (ConceptId::from("family"), ConceptId::from("sovereignty")),
+                emergent_concept: ConceptId::from("dream"),
+                resonance_strength: delib.consensus_harmony,
+            });
+        }
+
+        // =========================================================================
+        // PHASE 7 (100%) : Aube Cosmique (Uji — L'Être-Temps)
+        // =========================================================================
         self.development.dream_cycles_completed += 1;
         self.development.evaluate_progression();
 
-        progress_callback(100, "Dream cycle completed.");
+        let final_cosmos = self.swarm.cosmic_clock.status_summary();
+        progress_callback(100, &final_cosmos);
         records
     }
-
     /// Captures a cryptographically verified Kpack snapshot of the primary knowledge state.
     pub fn create_snapshot(&self) -> Result<CognitiveSnapshot> {
         if let Some(brain) = self.swarm.brains.get(&NodeCoord::new(0)) {

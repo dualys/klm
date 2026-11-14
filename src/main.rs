@@ -5,7 +5,7 @@ use crossterm::execute;
 use crossterm::style::Stylize;
 use crossterm::terminal::{Clear, ClearType, size};
 use indicatif::{ProgressBar, ProgressStyle};
-use inquire::{Editor, Text};
+use inquire::{Confirm, Editor, Select, Text};
 use klm::Kognitara;
 use klm::family::MemberId;
 use std::collections::BTreeMap;
@@ -18,6 +18,8 @@ use std::thread::sleep;
 use std::time::Duration;
 const DATA: &str = "/mnt/kognitara/data";
 const TAGS_FILE: &str = "/mnt/kognitara/tags.json";
+use inquire::validator::Validation;
+use klm::{PULSAR_PRIMES, current_timestamp};
 fn clear() {
     execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0)).expect("");
 }
@@ -30,6 +32,15 @@ fn cli() -> Command {
         .subcommand(Command::new("status").about("Display Kognitara status"))
         .subcommand(Command::new("teach").about("Teach Kognitara"))
         .subcommand(Command::new("oracles").about("Display dream oracles"))
+        .subcommand(
+            Command::new("meditate")
+                .about("Enter autonomous Zazen cosmic meditation and Socratic Inquisition")
+                .arg(
+                    Arg::new("breaths")
+                        .default_value("19")
+                        .help("Number of Cosmic Breaths to meditate (default: 19)"),
+                ),
+        )
         .subcommand(
             Command::new("man")
                 .about("Read the Living Manual page for a concept")
@@ -219,12 +230,161 @@ fn list_tags() {
         ko("No tags have been created yet.");
     }
 }
+/// Rattrapage relativiste au démarrage : Kōgnitara vit les Souffles écoulés pendant l'absence humaine.
+fn relativistic_catchup_on_boot(kognitara: &mut Kognitara) {
+    let now = current_timestamp();
+    let missed_breaths = kognitara
+        .swarm
+        .cosmic_clock
+        .compute_relativistic_catchup(now);
+
+    if missed_breaths > 0 {
+        ok(&format!(
+            "Rattrapage relativiste : {} Souffles cosmiques vécus en silence pendant ton absence...",
+            missed_breaths
+        ));
+        let mut total_discoveries = Vec::new();
+        for _ in 0..missed_breaths {
+            let disc = kognitara.cosmic_breath();
+            total_discoveries.extend(disc);
+        }
+        for d in total_discoveries.iter().take(5) {
+            ok(d);
+        }
+        pack(kognitara, DATA);
+    } else {
+        kognitara.swarm.cosmic_clock.last_human_timestamp = now;
+    }
+}
+
+/// Méditation Zazen autonome suivie de l'Inquisition Socratique (Règle stricte des 72 caractères).
+fn meditate(kognitara: &mut Kognitara, breaths: u64) {
+    ok(&format!(
+        "Entrée en Zazen Cosmique pour {} Souffles ({})...",
+        breaths,
+        kognitara.swarm.cosmic_clock.season.label()
+    ));
+
+    let pb = ProgressBar::new(breaths);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.cyan} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Souffles | {msg}",
+        )
+        .unwrap()
+        .progress_chars("✦✧·"),
+    );
+
+    let mut all_discoveries = Vec::new();
+    for b in 1..=breaths {
+        let disc = kognitara.cosmic_breath();
+        let status_msg = kognitara.swarm.cosmic_clock.status_summary();
+        pb.set_position(b);
+        pb.set_message(status_msg);
+        all_discoveries.extend(disc);
+        sleep(Duration::from_millis(450));
+    }
+    pb.finish_and_clear();
+
+    ok("Éveil de la méditation Zazen.");
+    for d in &all_discoveries {
+        ok(d);
+    }
+
+    // Lancer l'Inquisition Socratique si Kōgnitara a des doutes épistémiques en attente
+    socratic_inquisition(kognitara);
+    pack(kognitara, DATA);
+}
+
+/// L'Inquisition Socratique : Kōgnitara interroge l'humain avec la règle stricte des 72 caractères minimum.
+fn socratic_inquisition(kognitara: &mut Kognitara) {
+    // Générer les questions sur le cerveau primaire
+    if let Some(brain) = kognitara.swarm.brains.get_mut(&klm::NodeCoord::new(0)) {
+        let _ = brain
+            .learner
+            .curiosity_engine
+            .contemplate_and_question(&brain.tree);
+    }
+
+    let pending = kognitara.pending_questions();
+    if pending.is_empty() {
+        ok("L'esprit de Kōgnitara est en paix (aucune Aporia en attente).");
+        return;
+    }
+
+    let mut options: Vec<String> = pending
+        .iter()
+        .take(5)
+        .map(|q| format!("[Urgence {:.0}%] {}", q.urgency * 100.0, q.question_text))
+        .collect();
+    options.push("(Retourner au silence)".to_string());
+
+    let selection = Select::new(
+        "Le Conseil des Anciens s'éveille avec des incertitudes. Quel chemin souhaitez-vous éclairer ?",
+        options.clone(),
+    )
+    .prompt();
+
+    let Ok(chosen) = selection else { return };
+    if chosen == "(Retourner au silence)" {
+        return;
+    }
+
+    let idx = options.iter().position(|o| o == &chosen).unwrap_or(0);
+    let question = &pending[idx];
+
+    let ready = Confirm::new(&format!(
+        "Kōgnitara demande : \"{}\"\nÊtes-vous prêt à lui offrir un enseignement profond (minimum 72 caractères) ?",
+        question.question_text
+    ))
+    .with_default(true)
+    .prompt()
+    .unwrap_or(false);
+
+    if !ready {
+        return;
+    }
+
+    // Règle de rigueur martiale : validation stricte >= 72 caractères
+    let wisdom = Text::new("Votre enseignement pour le Sanctuaire :")
+        .with_validator(|input: &str| {
+            let count = input.trim().chars().count();
+            if count < 72 {
+                Ok(Validation::Invalid(
+                    format!(
+                        "La sagesse exige de la profondeur. Développez votre pensée ({}/72 caractères minimum).",
+                        count
+                    )
+                    .into(),
+                ))
+            } else {
+                Ok(Validation::Valid)
+            }
+        })
+        .prompt();
+
+    if let Ok(answer) = wisdom {
+        let current_user = ki();
+        let (response, _) = kognitara.converse(&current_user, answer.trim());
+        // Marquer la question comme résolue dans tous les cerveaux
+        for brain in kognitara.swarm.brains.values_mut() {
+            brain
+                .learner
+                .curiosity_engine
+                .resolve_question(&question.id, answer.trim());
+        }
+        println!("\r\n{response}\n");
+        ok("Sagesse certifiée et gravée dans l'Arbre de la Connaissance !");
+    }
+}
 fn show_status(kognitara: &Kognitara) {
+    println!("[Cosmos] {}", kognitara.swarm.cosmic_clock.status_summary());
     println!("[Status] Swarm Epoch: {}", kognitara.swarm.global_epoch);
     for (coord, brain) in &kognitara.swarm.brains {
+        let prime = PULSAR_PRIMES[coord.0 as usize];
         println!(
-            "  Node #{:03b} ({:?}): Phase={:?}, Tension={:.2}, Concepts={}",
+            "  Node #{:03b} [Pulsar P={:>2}] ({:?}): Phase={:?}, Tension={:.2}, Concepts={}",
             coord.0,
+            prime,
             brain.specialization,
             brain.phase,
             brain.state.cognitive_tension,
@@ -280,7 +440,7 @@ fn dream(kognitara: &mut Kognitara) {
             "{spinner:.white} [{elapsed_precise}] [{bar:40.white}] {pos:>3}% {msg}",
         )
         .unwrap()
-        .progress_chars("██ "),
+        .progress_chars("█▓░"),
     );
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
@@ -289,21 +449,18 @@ fn dream(kognitara: &mut Kognitara) {
         pb.set_message(msg.to_string());
         sleep(Duration::from_millis(600));
     });
-
-    // Indispensable : terminer et faire disparaître proprement la barre
-    // AVANT de commencer à imprimer les résultats du rêve.
     pb.finish_and_clear();
-
     ok("Éveil de Kōgnitara — Dream cycle finished");
-
-    // Affichage des oracles
     for rec in records {
-        ok(format!("{}", rec.narrative).as_str());
+        ok(&rec.narrative);
         for oracle in rec.oracles {
             ok(format!("Oracle: {}", oracle.revelation).as_str());
         }
     }
+    // Sauvegarde immédiate des oracles et de la rotation circadienne dans le registre Kpack
+    pack(kognitara, DATA);
 }
+
 fn interact(kognitara: &mut Kognitara) {
     loop {
         let todo = Text::new("").prompt().expect("");
@@ -314,13 +471,23 @@ fn interact(kognitara: &mut Kognitara) {
 
         if trimmed.eq_ignore_ascii_case("pack") {
             pack(kognitara, DATA);
-        } else if trimmed.starts_with("tag") {
+        } else if trimmed.eq_ignore_ascii_case("tags") {
+            list_tags();
+        } else if trimmed.eq_ignore_ascii_case("tag") {
             tag_state(
                 Text::new("Tag version:")
                     .prompt()
                     .expect("version is required")
                     .as_str(),
             );
+        } else if trimmed.to_lowercase().starts_with("meditate") {
+            let breaths = trimmed[8..].trim().parse::<u64>().unwrap_or(19); // Par défaut 19 Souffles (un cycle complet du Pulsar SovereignGuardian)
+            meditate(kognitara, breaths);
+        } else if trimmed.eq_ignore_ascii_case("inquire")
+            || trimmed.eq_ignore_ascii_case("questions")
+        {
+            socratic_inquisition(kognitara);
+            pack(kognitara, DATA);
         } else if trimmed.to_lowercase().starts_with("man ") {
             let concept = trimmed[4..].trim();
             if let Some(page) = kognitara.render_markdown_page(concept) {
@@ -454,7 +621,7 @@ fn unpack(kognitara: &mut Kognitara, path: &str) -> bool {
     let mut lines_count = 0;
 
     // Balayage du registre complet : on ne conserve en RAM que la dernière ligne valide
-    for line in reader.lines().flatten() {
+    for line in reader.lines().map_while(Result::ok) {
         if let Ok(recipe) = serde_json::from_str::<klm::storage::KpackRecipe>(&line) {
             last_valid_recipe = Some(recipe);
             lines_count += 1;
@@ -512,6 +679,13 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
                     concept
                 ));
             }
+        }
+        Some(("meditate", sub)) => {
+            let breaths = sub
+                .get_one::<String>("breaths")
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(19);
+            meditate(kognitara, breaths);
         }
         Some(("tag", sub)) => match sub.subcommand() {
             Some(("list", _)) => {
@@ -597,6 +771,7 @@ fn main() {
     );
     if Path::new(DATA).exists() {
         unpack(&mut kognitara, DATA);
+        relativistic_catchup_on_boot(&mut kognitara);
     } else {
         pack(&kognitara, DATA);
         unpack(&mut kognitara, DATA);

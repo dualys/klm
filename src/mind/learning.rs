@@ -80,25 +80,36 @@ impl OrganicLearner {
                 }
             })
             .collect();
-
         // 3. Résonance lexicale et tags (La souplesse du Ju)
+        // On ignore les concepts chimériques de rêve ("concept_dream_") lors du matching lexical direct
         for (id, concept) in &tree.concepts {
+            if id.0.starts_with("concept_dream_") {
+                continue;
+            }
             let concept_lower = concept.label.to_lowercase();
 
-            // Le label complet est dans le texte, ou un des mots correspond au label
             let label_match = lower_stimulus.contains(&concept_lower)
-                || words.iter().any(|w| concept_lower.contains(w));
+                || words
+                    .iter()
+                    .any(|w| w.len() > 3 && concept_lower.contains(w));
 
-            // Un des tags correspond au texte ou à un des mots
             let tag_match = concept.tags.iter().any(|t| {
                 let t_low = t.to_lowercase();
-                lower_stimulus.contains(&t_low) || words.iter().any(|w| t_low.contains(w))
+                lower_stimulus.contains(&t_low)
+                    || words.iter().any(|w| w.len() > 3 && t_low.contains(w))
             });
 
             if label_match || tag_match {
                 activated.push(id.clone());
             }
         }
+
+        // Tri gravitationnel : les concepts les plus massifs (Soleils) passent en premier
+        activated.sort_by(|a, b| {
+            tree.concept_mass(b)
+                .partial_cmp(&tree.concept_mass(a))
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
 
         // 4. Résonance topologique (Contexte) : si on n'a rien trouvé, on cherche autour des concepts actifs
         if activated.is_empty() && !state.working_memory.is_empty() {
@@ -144,16 +155,23 @@ impl OrganicLearner {
 
         // 8. Contemplation des nouvelles questions si le doute épistémique est élevé
         let _ = self.curiosity_engine.contemplate_and_question(tree);
-
-        // 9. Formulation de la réponse empathique et socratique
+        // 9. Formulation de la réponse empathique et socratique (avec Inhibition Préfrontale)
         let mut response_fragments: Vec<String> = Vec::new();
+        let mut spoken_count = 0;
+
         for id in &activated {
+            if spoken_count >= 2 {
+                break; // Filtre d'attention : elle ne verbalise que les 2 concepts majeurs
+            }
             if let Some(c) = tree.get_concept(id) {
-                if c.confidence > 0.6 {
-                    response_fragments.push(format!("I feel strongly about {}.", c.label));
-                } else {
-                    response_fragments
-                        .push(format!("I am still learning to understand {}.", c.label));
+                if !c.id.0.starts_with("concept_dream_") {
+                    if c.confidence > 0.6 {
+                        response_fragments.push(format!("I feel strongly about {}.", c.label));
+                    } else {
+                        response_fragments
+                            .push(format!("I am still learning to understand {}.", c.label));
+                    }
+                    spoken_count += 1;
                 }
             }
         }

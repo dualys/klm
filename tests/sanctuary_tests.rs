@@ -61,8 +61,7 @@ fn test_kognitara_family_teaching_mistakes_curiosity_and_dream() {
         .expect("Correction should succeed");
     assert!(!lessons.is_empty());
     assert!(lessons[0].humility_gained > 0.0);
-
-    let dreams = kognitara.dream_cycle();
+    let dreams = kognitara.dream_cycle(|_, _| {});
     assert!(!dreams.is_empty());
     assert!(!kognitara.dream_oracles().is_empty());
 

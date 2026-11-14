@@ -35,7 +35,130 @@ impl KnowledgeTree {
             edges: Vec::new(),
         }
     }
+    /// Retourne le degré synaptique total (liens entrants + sortants) d'un concept.
+    pub fn synaptic_degree(&self, id: &ConceptId) -> usize {
+        self.edges
+            .iter()
+            .filter(|e| &e.source == id || &e.target == id)
+            .count()
+    }
 
+    /// Retourne la masse gravitationnelle d'un concept dans l'arbre.
+    pub fn concept_mass(&self, id: &ConceptId) -> f32 {
+        let deg = self.synaptic_degree(id);
+        self.concepts
+            .get(id)
+            .map(|c| c.gravitational_mass(deg))
+            .unwrap_or(0.1)
+    }
+
+    /// [Pulsar #010 - CausalReasoner (Fréquence 5)]
+    /// Transitivité Causale : Si A soutient/cause B et B soutient/cause C, déduit que A soutient C.
+    pub fn pulsar_causal_transitivity(&mut self) -> Option<(ConceptId, ConceptId)> {
+        let causal_edges: Vec<(ConceptId, ConceptId, f32)> = self
+            .edges
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.relation_type,
+                    RelationType::Causal | RelationType::Sustains | RelationType::GrowsFrom
+                ) && e.weight >= 0.70
+            })
+            .map(|e| (e.source.clone(), e.target.clone(), e.weight))
+            .collect();
+
+        for (a, b1, w1) in &causal_edges {
+            for (b2, c, w2) in &causal_edges {
+                if b1 == b2 && a != c {
+                    let already_linked =
+                        self.edges.iter().any(|e| &e.source == a && &e.target == c);
+                    if !already_linked {
+                        let transitive_weight = (w1 * w2 * 0.85).clamp(0.50, 0.90);
+                        self.connect(a, c, RelationType::Sustains, transitive_weight);
+                        if let Some(ca) = self.concepts.get_mut(a) {
+                            ca.apply_experience(0.80, 0.10);
+                        }
+                        if let Some(cc) = self.concepts.get_mut(c) {
+                            cc.apply_experience(0.80, 0.10);
+                        }
+                        return Some((a.clone(), c.clone()));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// [Pulsar #011 - AnalogicalPoet (Fréquence 7)]
+    /// Isomorphisme Topologique : Cherche deux concepts majeurs qui partagent des voisins communs
+    /// et une forte résonance vectorielle (> 0.75) pour les graver dans le marbre en autonomie.
+    pub fn pulsar_topological_isomorphism(&mut self) -> Option<(ConceptId, ConceptId, f32)> {
+        let cpu = CpuBackend::new();
+        let candidates: Vec<ConceptId> = self
+            .concepts
+            .values()
+            .filter(|c| !c.id.0.starts_with("concept_dream_"))
+            .map(|c| c.id.clone())
+            .collect();
+
+        for i in 0..candidates.len() {
+            for j in (i + 1)..candidates.len() {
+                let id_a = &candidates[i];
+                let id_b = &candidates[j];
+
+                let already_linked = self.edges.iter().any(|e| {
+                    (&e.source == id_a && &e.target == id_b)
+                        || (&e.source == id_b && &e.target == id_a)
+                });
+                if already_linked {
+                    continue;
+                }
+
+                // Vérifier s'ils partagent au moins une racine/voisin commun dans leur constellation
+                let neighbors_a: BTreeSet<ConceptId> = self
+                    .edges
+                    .iter()
+                    .filter_map(|e| {
+                        if &e.source == id_a {
+                            Some(e.target.clone())
+                        } else if &e.target == id_a {
+                            Some(e.source.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                let shares_constellation = self.edges.iter().any(|e| {
+                    (&e.source == id_b && neighbors_a.contains(&e.target))
+                        || (&e.target == id_b && neighbors_a.contains(&e.source))
+                });
+
+                if !shares_constellation {
+                    continue;
+                }
+
+                let (emb_a, emb_b) = match (self.concepts.get(id_a), self.concepts.get(id_b)) {
+                    (Some(ca), Some(cb)) => (ca.embedding.clone(), cb.embedding.clone()),
+                    _ => continue,
+                };
+
+                let sim = ((cpu.cosine_similarity(&emb_a, &emb_b) + 1.0) * 0.5).clamp(0.0, 1.0);
+                // Règle d'autonomie : si la résonance >= 0.75, elle le grave directement dans le marbre
+                if sim >= 0.75 {
+                    self.connect(id_a, id_b, RelationType::Harmonizes, sim);
+                    if let Some(ca) = self.concepts.get_mut(id_a) {
+                        ca.apply_experience(sim, 0.25);
+                    }
+                    if let Some(cb) = self.concepts.get_mut(id_b) {
+                        cb.apply_experience(sim, 0.25);
+                    }
+                    return Some((id_a.clone(), id_b.clone(), sim));
+                }
+            }
+        }
+        None
+    }
     /// Initializes foundational innate concepts to ground perception, curiosity, and family values.
     pub fn with_innate_seed() -> Self {
         let mut tree = Self::new();

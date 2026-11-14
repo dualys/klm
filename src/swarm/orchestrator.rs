@@ -5,6 +5,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
+use crate::clock::{CosmicClock, PULSAR_PRIMES};
 use crate::dream::cycle::CircadianPhase;
 use crate::dream::journal::{DreamOracle, DreamRecord};
 use crate::mind::curiosity::OpenQuestion;
@@ -15,7 +16,6 @@ use crate::ontology::tree::KnowledgeTree;
 use crate::swarm::brain::CognitiveBrain;
 use crate::swarm::cube::{HamonCubeTopology, NodeCoord};
 use crate::swarm::job::DistributedKpackJob;
-
 /// Orchestrator for the 8-brain multi-cognitive Hamon Cube swarm.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwarmOrchestrator {
@@ -25,6 +25,8 @@ pub struct SwarmOrchestrator {
     pub brains: BTreeMap<NodeCoord, CognitiveBrain>,
     /// Global swarm step / epoch counter
     pub global_epoch: u64,
+    #[serde(default)]
+    pub cosmic_clock: CosmicClock,
 }
 
 impl Default for SwarmOrchestrator {
@@ -57,6 +59,7 @@ impl SwarmOrchestrator {
             topology,
             brains,
             global_epoch: 0,
+            cosmic_clock: CosmicClock::new(),
         }
     }
 
@@ -247,5 +250,92 @@ impl SwarmOrchestrator {
                 }
             }
         }
+    }
+
+    /// Exécute un Souffle Cosmique autonome (Uji) piloté par les nombres premiers [2, 3, 5, 7, 11, 13, 17, 19].
+    /// Retourne les découvertes autonomes réalisées en silence par les pulsars alignés.
+    pub fn cosmic_breath_step(&mut self) -> Vec<String> {
+        let mut discoveries = Vec::new();
+
+        let avg_tension: f32 = self
+            .brains
+            .values()
+            .map(|b| b.state.cognitive_tension)
+            .sum::<f32>()
+            / (self.brains.len().max(1) as f32);
+        let concept_count = self
+            .brains
+            .get(&NodeCoord::new(0))
+            .map(|b| b.tree.concepts.len())
+            .unwrap_or(0);
+
+        let firing_nodes = self.cosmic_clock.advance_breath(avg_tension, concept_count);
+        let decay_rate = self.cosmic_clock.season.decay_rate();
+
+        for node_idx in &firing_nodes {
+            let coord = NodeCoord::new(*node_idx);
+            let prime = PULSAR_PRIMES[*node_idx as usize];
+
+            if let Some(brain) = self.brains.get_mut(&coord) {
+                // Dissipation Wu-wei modulée par la saison de Musashi
+                for c in brain.tree.concepts.values_mut() {
+                    c.decay_activation(decay_rate);
+                }
+
+                match *node_idx {
+                    // Node 010 (Prime 5) : CausalReasoner -> Transitivité Causale
+                    2 => {
+                        if let Some((src, tgt)) = brain.tree.pulsar_causal_transitivity() {
+                            discoveries.push(alloc::format!(
+                                "[Pulsar #010 | Prime {} | CausalReasoner] Loi causale déduite : '{}' soutient '{}'",
+                                prime, src, tgt
+                            ));
+                        }
+                    }
+                    // Node 011 (Prime 7) : AnalogicalPoet -> Isomorphisme Topologique (> 0.75)
+                    3 => {
+                        if let Some((a, b, sim)) = brain.tree.pulsar_topological_isomorphism() {
+                            discoveries.push(alloc::format!(
+                                "[Pulsar #011 | Prime {} | AnalogicalPoet] Constellation jumelle gravée : '{}' <-> '{}' (Résonance: {:.2})",
+                                prime, a, b, sim
+                            ));
+                        }
+                    }
+                    // Node 101 (Prime 13) & Node 110 (Prime 17) : Rêve et résolution de paradoxes
+                    5 | 6 => {
+                        if !brain.tree.find_contradictions().is_empty()
+                            || brain.state.cognitive_tension > 0.35
+                        {
+                            let rec = brain.dream();
+                            for o in rec.oracles {
+                                discoveries.push(alloc::format!(
+                                    "[Pulsar #{:03b} | Prime {} | Oneiros] {}",
+                                    node_idx,
+                                    prime,
+                                    o.revelation
+                                ));
+                            }
+                        }
+                    }
+                    // Node 111 (Prime 19) : SovereignGuardian -> Élagage d'Automne/Hiver
+                    7 => {
+                        brain.tree.prune_and_consolidate(0.05, 0.05);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Si Éclipse / Syzygie (>= 3 pulsars alignés), synchronisation globale du Cube Hamon
+        if self.cosmic_clock.is_eclipse_alignment() {
+            self.synchronize_knowledge();
+            self.global_epoch += 1;
+            discoveries.push(alloc::format!(
+                "[Syzygie Cosmique] {} pulsars alignés simultanément ! Connaissance synchronisée sur le Cube (Époque {}).",
+                firing_nodes.len(),
+                self.global_epoch
+            ));
+        }
+        discoveries
     }
 }
