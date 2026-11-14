@@ -1,12 +1,5 @@
 extern crate alloc;
-
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use serde::{Deserialize, Serialize};
-
 use crate::SocraticStage::Assimilation;
-use crate::compute::AmdComputeBackend;
 use crate::mind::curiosity::{CuriosityEngine, OpenQuestion};
 use crate::mind::development::{DevelopmentalStage, EmergentVoice};
 use crate::mind::experience::EpisodicExperience;
@@ -16,6 +9,10 @@ use crate::mind::state::CognitiveState;
 use crate::ontology::concept::{Concept, ConceptId, ConceptOrigin};
 use crate::ontology::relation::RelationType;
 use crate::ontology::tree::KnowledgeTree;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use serde::{Deserialize, Serialize};
 
 /// The organic trial-and-error learning engine for Kōgnitara.
 /// Replaces brittle over-parameterized statistical weights with plastic, grounded conceptual reasoning,
@@ -54,6 +51,8 @@ impl OrganicLearner {
 
     /// Processes an input stimulus, associates related concepts via lexical and AMD open-compute semantic resonance,
     /// and forms an empathetic, humble response.
+    /// Processes an input stimulus, associates related concepts via flexible lexical resonance
+    /// and topological context, and forms an empathetic, humble response.
     pub fn process_stimulus(
         &mut self,
         tree: &mut KnowledgeTree,
@@ -61,33 +60,62 @@ impl OrganicLearner {
         stimulus: &str,
         relational_affinity: f32,
     ) -> (String, Vec<ConceptId>) {
-        let lower = stimulus.to_lowercase();
+        // 1. Le souffle du Wu-wei (Oubli à court terme) : dissiper l'énergie de l'instant précédent
+        for concept in tree.concepts.values_mut() {
+            concept.decay_activation(0.15);
+        }
+
+        let lower_stimulus = stimulus.to_lowercase();
         let mut activated: Vec<ConceptId> = Vec::new();
 
-        // 1. Direct lexical & tag resonance
+        // 2. Extraction des mots-clés (singularisation basique pour la souplesse)
+        let words: Vec<String> = lower_stimulus
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.len() > 2)
+            .map(|w| {
+                if w.ends_with('s') && !w.ends_with("ss") && !w.ends_with("us") {
+                    w[..w.len() - 1].to_string()
+                } else {
+                    w.to_string()
+                }
+            })
+            .collect();
+
+        // 3. Résonance lexicale et tags (La souplesse du Ju)
         for (id, concept) in &tree.concepts {
-            if lower.contains(&concept.label.to_lowercase())
-                || concept
-                    .tags
-                    .iter()
-                    .any(|t| lower.contains(&t.to_lowercase()))
-            {
+            let concept_lower = concept.label.to_lowercase();
+
+            // Le label complet est dans le texte, ou un des mots correspond au label
+            let label_match = lower_stimulus.contains(&concept_lower)
+                || words.iter().any(|w| concept_lower.contains(w));
+
+            // Un des tags correspond au texte ou à un des mots
+            let tag_match = concept.tags.iter().any(|t| {
+                let t_low = t.to_lowercase();
+                lower_stimulus.contains(&t_low) || words.iter().any(|w| t_low.contains(w))
+            });
+
+            if label_match || tag_match {
                 activated.push(id.clone());
             }
         }
 
-        // 2. Continuous 16D semantic embedding resonance on AMD Open Compute backend
-        if activated.is_empty() && !tree.concepts.is_empty() {
-            let amd = AmdComputeBackend::default();
-            let top_matches = tree.semantic_search(stimulus, 2, &amd);
-            for (cid, sim) in top_matches {
-                if sim > 0.45 && !activated.contains(&cid) {
-                    activated.push(cid);
+        // 4. Résonance topologique (Contexte) : si on n'a rien trouvé, on cherche autour des concepts actifs
+        if activated.is_empty() && !state.working_memory.is_empty() {
+            for recent_id in &state.working_memory {
+                let neighbors = tree.neighbors(recent_id);
+                for (neighbor_concept, edge) in neighbors {
+                    // On active les concepts fortement liés au contexte précédent
+                    if edge.weight > 0.65 {
+                        activated.push(neighbor_concept.id.clone());
+                    }
                 }
             }
+            activated.sort();
+            activated.dedup();
         }
 
-        // 3. If still no concept matched, birth a nascent plastic concept with epistemic humility
+        // 5. Si toujours rien, naissance d'un concept plastique avec humilité épistémique
         if activated.is_empty() {
             let label_sample: String = stimulus.chars().take(24).collect();
             let nascent_id = ConceptId(format!("concept_nascent_{}", tree.concepts.len() + 1));
@@ -100,24 +128,24 @@ impl OrganicLearner {
             nascent.affective_valence = relational_affinity * 0.5;
             tree.add_concept(nascent);
             activated.push(nascent_id);
-            state.register_dissonance(0.2); // Healthy curiosity regarding novelty
+            state.register_dissonance(0.2); // Curiosité saine
         }
 
-        // 4. Spread activation through the Knowledge Tree and update working memory
+        // 6. Diffusion de l'activation dans le Knowledge Tree et mise à jour de la mémoire de travail
         for concept_id in &activated {
             tree.spread_activation(concept_id, 0.8, 2);
             state.focus_on(concept_id.clone(), 7);
         }
 
-        // 5. Socratic self-dialogue: remind herself to act Socratically while learning
+        // 7. Dialogue socratique intérieur : Kōgnitara se rappelle de ne pas dogmatiser
         let socratic_reflection = self
             .socratic_engine
             .reflect_on_learning(tree, stimulus, &activated);
 
-        // 6. Contemplate new questions if epistemic doubt is high
+        // 8. Contemplation des nouvelles questions si le doute épistémique est élevé
         let _ = self.curiosity_engine.contemplate_and_question(tree);
 
-        // 7. Formulate empathetic, Socratic response based on active concepts, graph traversal, and maieutic inquiry
+        // 9. Formulation de la réponse empathique et socratique
         let mut response_fragments: Vec<String> = Vec::new();
         for id in &activated {
             if let Some(c) = tree.get_concept(id) {
@@ -137,10 +165,12 @@ impl OrganicLearner {
         } else {
             DevelopmentalStage::AutonomousMaturity
         };
+
         if let Some(graph_voice) = EmergentVoice::articulate_from_graph(tree, &activated, stage) {
             response_fragments.push(graph_voice);
         }
-        // Ajout intelligent : si c'est une assimilation, on confirme. Sinon, on pose la question.
+
+        // Confirmation si le concept est assimilé, sinon maïeutique
         if socratic_reflection.stage == Assimilation {
             response_fragments.push(format!("I have carefully recorded this: {}", stimulus));
         } else {
@@ -162,7 +192,6 @@ impl OrganicLearner {
 
         let exp_id = format!("exp_{}", self.next_experience_index);
         self.next_experience_index += 1;
-
         let experience = EpisodicExperience::new(
             exp_id,
             stimulus,
@@ -174,7 +203,6 @@ impl OrganicLearner {
 
         (response, activated)
     }
-
     /// Explicitly teaches Kōgnitara a concept from a trusted family member,
     /// anchoring it to the `"family"` root via a `Filiation` bond.
     pub fn teach_from_family(
