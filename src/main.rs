@@ -314,6 +314,13 @@ fn interact(kognitara: &mut Kognitara) {
 
         if trimmed.eq_ignore_ascii_case("pack") {
             pack(kognitara, DATA);
+        } else if trimmed.starts_with("tag") {
+            tag_state(
+                Text::new("Tag version:")
+                    .prompt()
+                    .expect("version is required")
+                    .as_str(),
+            );
         } else if trimmed.to_lowercase().starts_with("man ") {
             let concept = trimmed[4..].trim();
             if let Some(page) = kognitara.render_markdown_page(concept) {
