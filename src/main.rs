@@ -347,6 +347,11 @@ fn interact(kognitara: &mut Kognitara) {
             break;
         } else if trimmed.eq_ignore_ascii_case("dream") {
             dream(kognitara);
+        } else {
+            let current_user = ki();
+            let (response, _activated) = kognitara.converse(&current_user, trimmed);
+            println!("\r\n{response}\n");
+            pack(kognitara, DATA);
         }
     }
 }
