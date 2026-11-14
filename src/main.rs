@@ -33,6 +33,44 @@ fn cli() -> Command {
         .subcommand(Command::new("teach").about("Teach Kognitara"))
         .subcommand(Command::new("oracles").about("Display dream oracles"))
         .subcommand(
+            Command::new("nap")
+                .visible_alias("sieste")
+                .about("Quick Hebbian micro-nap and working memory reset"),
+        )
+        .subcommand(
+            Command::new("rest")
+                .visible_alias("repos")
+                .about("Deep Hara rest, homeostasis, and solar filiation maturation"),
+        )
+        .subcommand(
+            Command::new("contemplate")
+                .about("Silent 16D semantic accretion and causal deduction without human input")
+                .arg(
+                    Arg::new("steps")
+                        .default_value("5")
+                        .help("Number of contemplation steps"),
+                ),
+        )
+        .subcommand(
+            Command::new("hibernate").about(
+                "Enter Musashi Winter hibernation: Kpack fossilization and synaptic pruning",
+            ),
+        )
+        .subcommand(
+            Command::new("meditate")
+                .about("Enter autonomous Zazen cosmic meditation and Socratic Inquisition")
+                .arg(
+                    Arg::new("breaths")
+                        .default_value("19")
+                        .help("Number of Cosmic Breaths"),
+                ),
+        )
+        .subcommand(
+            Command::new("questions")
+                .visible_alias("inquire")
+                .about("Open Socratic Inquisition to answer Kōgnitara's doubts"),
+        )
+        .subcommand(
             Command::new("meditate")
                 .about("Enter autonomous Zazen cosmic meditation and Socratic Inquisition")
                 .arg(
@@ -363,15 +401,49 @@ fn socratic_inquisition(kognitara: &mut Kognitara) {
         .prompt();
 
     if let Ok(answer) = wisdom {
+        let trimmed_ans = answer.trim();
+        let q_text = question.question_text.clone();
+        let target_concepts = question.related_concepts.clone();
+
+        // S'assurer qu'au moins le nœud 000 est éveillé pour recevoir l'enseignement
+        if !kognitara
+            .swarm
+            .brains
+            .values()
+            .any(|b| b.phase == klm::CircadianPhase::Awake)
+            && let Some(b0) = kognitara.swarm.brains.get_mut(&klm::NodeCoord::new(0))
+        {
+            b0.phase = klm::CircadianPhase::Awake;
+        }
+
         let current_user = ki();
-        let (response, _) = kognitara.converse(&current_user, answer.trim());
-        // Marquer la question comme résolue dans tous les cerveaux
+        let (response, _) = kognitara.converse(&current_user, trimmed_ans);
+
+        // Marquer la question comme résolue et sceller la confiance (0.88) dans les 8 cerveaux
         for brain in kognitara.swarm.brains.values_mut() {
             brain
                 .learner
                 .curiosity_engine
-                .resolve_question(&question.id, answer.trim());
+                .resolve_question(&q_text, trimmed_ans);
+
+            for cid in &target_concepts {
+                brain
+                    .learner
+                    .curiosity_engine
+                    .resolve_question(&cid.0, trimmed_ans);
+
+                if let Some(concept) = brain.tree.get_concept_mut(cid) {
+                    concept.description = format!(
+                        "{} | Enseignement familial : {}",
+                        concept.description, trimmed_ans
+                    );
+                    concept.confidence = 0.88;
+                    concept.plasticity = 0.35;
+                    concept.apply_experience(0.95, 0.85);
+                }
+            }
         }
+
         println!("\r\n{response}\n");
         ok("Sagesse certifiée et gravée dans l'Arbre de la Connaissance !");
     }
@@ -470,6 +542,27 @@ fn interact(kognitara: &mut Kognitara) {
         }
 
         if trimmed.eq_ignore_ascii_case("pack") {
+            pack(kognitara, DATA);
+        } else if trimmed.eq_ignore_ascii_case("nap") || trimmed.eq_ignore_ascii_case("sieste") {
+            for msg in kognitara.nap_cycle() {
+                ok(&msg);
+            }
+            pack(kognitara, DATA);
+        } else if trimmed.eq_ignore_ascii_case("rest") || trimmed.eq_ignore_ascii_case("repos") {
+            for msg in kognitara.rest_cycle() {
+                ok(&msg);
+            }
+            pack(kognitara, DATA);
+        } else if trimmed.to_lowercase().starts_with("contemplate") {
+            let steps = trimmed[11..].trim().parse::<usize>().unwrap_or(5);
+            for msg in kognitara.contemplate_cycle(steps) {
+                ok(&msg);
+            }
+            pack(kognitara, DATA);
+        } else if trimmed.eq_ignore_ascii_case("hibernate") {
+            for msg in kognitara.hibernate_cycle() {
+                ok(&msg);
+            }
             pack(kognitara, DATA);
         } else if trimmed.eq_ignore_ascii_case("tags") {
             list_tags();
@@ -680,12 +773,44 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
                 ));
             }
         }
+        Some(("nap", _)) => {
+            for msg in kognitara.nap_cycle() {
+                ok(&msg);
+            }
+            pack(kognitara, DATA);
+        }
+        Some(("rest", _)) => {
+            for msg in kognitara.rest_cycle() {
+                ok(&msg);
+            }
+            pack(kognitara, DATA);
+        }
+        Some(("contemplate", sub)) => {
+            let steps = sub
+                .get_one::<String>("steps")
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(5);
+            for msg in kognitara.contemplate_cycle(steps) {
+                ok(&msg);
+            }
+            pack(kognitara, DATA);
+        }
+        Some(("hibernate", _)) => {
+            for msg in kognitara.hibernate_cycle() {
+                ok(&msg);
+            }
+            pack(kognitara, DATA);
+        }
         Some(("meditate", sub)) => {
             let breaths = sub
                 .get_one::<String>("breaths")
                 .and_then(|s| s.parse::<u64>().ok())
                 .unwrap_or(19);
             meditate(kognitara, breaths);
+        }
+        Some(("questions", _)) => {
+            socratic_inquisition(kognitara);
+            pack(kognitara, DATA);
         }
         Some(("tag", sub)) => match sub.subcommand() {
             Some(("list", _)) => {

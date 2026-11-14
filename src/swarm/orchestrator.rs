@@ -45,13 +45,12 @@ impl SwarmOrchestrator {
             let innate_tree = KnowledgeTree::with_innate_seed();
             let mut brain = CognitiveBrain::new(*coord, innate_tree);
 
-            // Stagger initial circadian phases across cohorts
             match coord.0 {
-                0..=2 => brain.phase = CircadianPhase::Awake,
-                3..=5 => brain.phase = CircadianPhase::DeepDream,
+                0..=1 => brain.phase = CircadianPhase::Awake,
+                2..=3 => brain.phase = CircadianPhase::DrowsinessRamp,
+                4..=5 => brain.phase = CircadianPhase::DeepDream,
                 _ => brain.phase = CircadianPhase::Crystallization,
             }
-
             brains.insert(*coord, brain);
         }
 
@@ -207,7 +206,6 @@ impl SwarmOrchestrator {
     /// Rotates the circadian cohorts to ensure continuous vigilance while allowing every brain to dream.
     pub fn rotate_circadian_cohorts(&mut self) {
         self.global_epoch += 1;
-
         for brain in self.brains.values_mut() {
             brain.phase = match brain.phase {
                 CircadianPhase::Awake => CircadianPhase::DrowsinessRamp,
@@ -215,6 +213,19 @@ impl SwarmOrchestrator {
                 CircadianPhase::DeepDream => CircadianPhase::Crystallization,
                 CircadianPhase::Crystallization => CircadianPhase::Awake,
             };
+        }
+        // Garantir qu'au moins une cohorte est éveillée même sur une ancienne sauvegarde
+        if !self
+            .brains
+            .values()
+            .any(|b| b.phase == CircadianPhase::Awake)
+        {
+            if let Some(b0) = self.brains.get_mut(&NodeCoord::new(0)) {
+                b0.phase = CircadianPhase::Awake;
+            }
+            if let Some(b1) = self.brains.get_mut(&NodeCoord::new(1)) {
+                b1.phase = CircadianPhase::Awake;
+            }
         }
     }
 

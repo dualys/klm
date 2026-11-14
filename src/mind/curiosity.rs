@@ -1,5 +1,4 @@
 extern crate alloc;
-
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -49,14 +48,15 @@ impl CuriosityEngine {
     /// Scans the Knowledge Tree for nascent concepts with high epistemic doubt or contradictions,
     /// formulating new questions for the family if not already asked.
     pub fn contemplate_and_question(&mut self, tree: &KnowledgeTree) -> Vec<OpenQuestion> {
+        // D'abord, auto-résoudre les questions sur les concepts qui ont mûri en silence
+        let _ = self.auto_resolve_matured_questions(tree);
+
         let mut newly_formed = Vec::new();
 
-        // 1. Question unresolved contradictions first
+        // 1. Question unresolved contradictions first (ignore already asked or resolved pairs)
         for (src_id, src_lbl, tgt_id, tgt_lbl) in tree.find_contradictions() {
             let already_asked = self.questions.iter().any(|q| {
-                !q.is_resolved
-                    && q.related_concepts.contains(&src_id)
-                    && q.related_concepts.contains(&tgt_id)
+                q.related_concepts.contains(&src_id) && q.related_concepts.contains(&tgt_id)
             });
 
             if !already_asked {
@@ -78,15 +78,17 @@ impl CuriosityEngine {
             }
         }
 
-        // 2. Question high-doubt nascent concepts
+        // 2. Question high-doubt nascent concepts (ignore concepts already questioned once)
         for (id, concept) in &tree.concepts {
+            if id.0.starts_with("concept_dream_") {
+                continue;
+            }
             let doubt = concept.epistemic_doubt();
             if doubt > 0.65 {
                 let already_asked = self
                     .questions
                     .iter()
-                    .any(|q| !q.is_resolved && q.related_concepts.contains(id));
-
+                    .any(|q| q.related_concepts.contains(id));
                 if !already_asked {
                     let q = OpenQuestion {
                         id: format!("q_{}", self.next_question_index),
@@ -110,6 +112,30 @@ impl CuriosityEngine {
         newly_formed
     }
 
+    /// Si un concept a mûri par lui-même pendant le repos (confiance >= 0.72),
+    /// Kōgnitara résout sa propre question par illumination autonome.
+    pub fn auto_resolve_matured_questions(&mut self, tree: &KnowledgeTree) -> usize {
+        let mut count = 0;
+        for q in &mut self.questions {
+            if !q.is_resolved {
+                let all_matured = !q.related_concepts.is_empty()
+                    && q.related_concepts.iter().all(|cid| {
+                        tree.get_concept(cid)
+                            .map(|c| c.confidence >= 0.72)
+                            .unwrap_or(false)
+                    });
+                if all_matured {
+                    q.is_resolved = true;
+                    q.resolution_insight = Some(String::from(
+                        "Assimilated autonomously through gravitational maturation and rest.",
+                    ));
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
     /// Returns all currently unresolved questions ordered by urgency.
     pub fn pending_questions(&self) -> Vec<&OpenQuestion> {
         let mut pending: Vec<&OpenQuestion> =
@@ -122,14 +148,27 @@ impl CuriosityEngine {
         pending
     }
 
-    /// Resolves an open question with guidance from a family member or dream synthesis.
-    pub fn resolve_question(&mut self, question_id: &str, insight: impl Into<String>) -> bool {
-        if let Some(q) = self.questions.iter_mut().find(|q| q.id == question_id) {
-            q.is_resolved = true;
-            q.resolution_insight = Some(insight.into());
-            true
-        } else {
-            false
+    /// Resolves an open question by ID, question text, or related concept across any brain.
+    pub fn resolve_question(
+        &mut self,
+        question_id_or_text: &str,
+        insight: impl Into<String>,
+    ) -> bool {
+        let insight_str = insight.into();
+        let mut resolved_any = false;
+        for q in &mut self.questions {
+            if !q.is_resolved
+                && (q.id == question_id_or_text
+                    || q.question_text == question_id_or_text
+                    || q.related_concepts
+                        .iter()
+                        .any(|c| c.0 == question_id_or_text))
+            {
+                q.is_resolved = true;
+                q.resolution_insight = Some(insight_str.clone());
+                resolved_any = true;
+            }
         }
+        resolved_any
     }
 }

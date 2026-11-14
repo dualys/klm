@@ -88,7 +88,104 @@ impl KnowledgeTree {
         }
         None
     }
+    /// [Apprentissage par Filiation Gravitationnelle]
+    /// Les Soleils supermassifs (confiance >= 0.75) nourrissent graduellement les concepts
+    /// plus jeunes qui leur sont connectés, réduisant leur doute épistémique pendant le repos.
+    pub fn gravitational_filiation_maturation(&mut self) -> Vec<(ConceptId, f32)> {
+        let mut matured = Vec::new();
+        let edges_snapshot: Vec<(ConceptId, ConceptId, f32)> = self
+            .edges
+            .iter()
+            .map(|e| (e.source.clone(), e.target.clone(), e.weight))
+            .collect();
 
+        for (src, tgt, weight) in edges_snapshot {
+            let src_conf = self.concepts.get(&src).map(|c| c.confidence).unwrap_or(0.0);
+            let tgt_conf = self.concepts.get(&tgt).map(|c| c.confidence).unwrap_or(0.0);
+
+            // Si la source est un Soleil stable et la cible est encore jeune
+            if src_conf >= 0.75 && tgt_conf < 0.75 {
+                if let Some(target_concept) = self.concepts.get_mut(&tgt) {
+                    let boost = (src_conf - tgt_conf) * weight * 0.18;
+                    target_concept.confidence =
+                        (target_concept.confidence + boost).clamp(0.10, 0.92);
+                    target_concept.plasticity = (target_concept.plasticity * 0.96).max(0.20);
+                    target_concept.experience_count += 1;
+                    matured.push((tgt.clone(), target_concept.confidence));
+                }
+            } else if tgt_conf >= 0.75 && src_conf < 0.75 {
+                if let Some(source_concept) = self.concepts.get_mut(&src) {
+                    let boost = (tgt_conf - src_conf) * weight * 0.18;
+                    source_concept.confidence =
+                        (source_concept.confidence + boost).clamp(0.10, 0.92);
+                    source_concept.plasticity = (source_concept.plasticity * 0.96).max(0.20);
+                    source_concept.experience_count += 1;
+                    matured.push((src.clone(), source_concept.confidence));
+                }
+            }
+        }
+        matured
+    }
+
+    /// [Accrétion Sémantique 16D]
+    /// Parcourt les concepts non reliés dans l'espace vectoriel 16D ; si deux astres ont une
+    /// gravité sémantique proche (>= 0.68), crée un pont associatif et harmonise leurs embeddings.
+    pub fn semantic_accretion_step(&mut self) -> Option<(ConceptId, ConceptId, f32)> {
+        let cpu = CpuBackend::new();
+        let ids: Vec<ConceptId> = self
+            .concepts
+            .keys()
+            .filter(|id| !id.0.starts_with("concept_dream_"))
+            .cloned()
+            .collect();
+
+        let mut best_pair: Option<(ConceptId, ConceptId, f32)> = None;
+
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                let a = &ids[i];
+                let b = &ids[j];
+
+                let linked = self.edges.iter().any(|e| {
+                    (&e.source == a && &e.target == b) || (&e.source == b && &e.target == a)
+                });
+                if linked {
+                    continue;
+                }
+
+                if let (Some(ca), Some(cb)) = (self.concepts.get(a), self.concepts.get(b)) {
+                    let sim = ((cpu.cosine_similarity(&ca.embedding, &cb.embedding) + 1.0) * 0.5)
+                        .clamp(0.0, 1.0);
+                    if sim >= 0.68 {
+                        if best_pair.as_ref().map(|p| sim > p.2).unwrap_or(true) {
+                            best_pair = Some((a.clone(), b.clone(), sim));
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some((a, b, sim)) = best_pair {
+            self.connect(&a, &b, RelationType::Associative, sim);
+            if let (Some(ca), Some(cb)) = (
+                self.concepts.get(&a).cloned(),
+                self.concepts.get(&b).cloned(),
+            ) {
+                let blended_a = cpu.blend_embeddings(&ca.embedding, &cb.embedding, 0.12);
+                let blended_b = cpu.blend_embeddings(&cb.embedding, &ca.embedding, 0.12);
+                if let Some(ma) = self.concepts.get_mut(&a) {
+                    ma.embedding = blended_a;
+                    ma.apply_experience(sim, 0.20);
+                }
+                if let Some(mb) = self.concepts.get_mut(&b) {
+                    mb.embedding = blended_b;
+                    mb.apply_experience(sim, 0.20);
+                }
+            }
+            return Some((a, b, sim));
+        }
+        None
+    }
     /// [Pulsar #011 - AnalogicalPoet (Fréquence 7)]
     /// Isomorphisme Topologique : Cherche deux concepts majeurs qui partagent des voisins communs
     /// et une forte résonance vectorielle (> 0.75) pour les graver dans le marbre en autonomie.

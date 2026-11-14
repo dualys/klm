@@ -105,6 +105,178 @@ impl Kognitara {
             fossil_archive: FossilArchive::new(),
         }
     }
+    /// 1. SIESTE (`nap` / `sieste`) : Micro-décantation rapide (3 Souffles doux).
+    /// Consolide les souvenirs épisodiques récents en liens associatifs (Loi de Hebb),
+    /// apaise la fatigue à court terme et nettoie la mémoire de travail.
+    pub fn nap_cycle(&mut self) -> Vec<String> {
+        let mut logs = Vec::new();
+        let mut consolidated_count = 0;
+
+        for brain in self.swarm.brains.values_mut() {
+            // Consolidation Hebbienne immédiate des épisodes non consolidés
+            let unconsolidated: Vec<Vec<ConceptId>> = brain
+                .learner
+                .episodic_stream
+                .iter_mut()
+                .filter(|e| !e.is_consolidated)
+                .map(|e| {
+                    e.mark_consolidated();
+                    e.activated_concepts.clone()
+                })
+                .collect();
+
+            for concepts in unconsolidated {
+                consolidated_count += 1;
+                for i in 0..concepts.len() {
+                    for j in (i + 1)..concepts.len() {
+                        brain.tree.connect(
+                            &concepts[i],
+                            &concepts[j],
+                            RelationType::Associative,
+                            0.68,
+                        );
+                    }
+                }
+            }
+
+            // Détente légère de la mémoire de travail et de la fatigue
+            brain.state.fatigue = (brain.state.fatigue * 0.3).max(0.02);
+            brain.state.cognitive_tension = (brain.state.cognitive_tension * 0.6).max(0.05);
+            brain.state.working_memory.clear();
+            for c in brain.tree.concepts.values_mut() {
+                c.decay_activation(0.25);
+            }
+        }
+
+        let _ = self.swarm.cosmic_clock.advance_breath(0.10, 30);
+        logs.push(alloc::format!(
+            "[Sieste / Micro-Décantation] {} épisodes consolidés par plasticité Hebbienne. Mémoire de travail apaisée.",
+            consolidated_count
+        ));
+        logs
+    }
+
+    /// 2. REPOS HARA (`rest` / `repos`) : Homéostasie énergétique & Maturation par Filiation.
+    /// Les Soleils supermassifs nourrissent les concepts jeunes qui leur sont reliés,
+    /// et les 8 cerveaux rééquilibrent leurs cohortes d'éveil.
+    pub fn rest_cycle(&mut self) -> Vec<String> {
+        let mut logs = Vec::new();
+        let mut total_matured = 0;
+        let mut auto_resolved = 0;
+
+        for brain in self.swarm.brains.values_mut() {
+            brain.state.rest();
+            let matured = brain.tree.gravitational_filiation_maturation();
+            total_matured += matured.len();
+            auto_resolved += brain
+                .learner
+                .curiosity_engine
+                .auto_resolve_matured_questions(&brain.tree);
+        }
+
+        // S'assurer que les nœuds 000 et 001 sont parfaitement éveillés et disponibles
+        if let Some(b0) = self.swarm.brains.get_mut(&NodeCoord::new(0)) {
+            b0.phase = CircadianPhase::Awake;
+        }
+        if let Some(b1) = self.swarm.brains.get_mut(&NodeCoord::new(1)) {
+            b1.phase = CircadianPhase::Awake;
+        }
+
+        self.swarm.synchronize_knowledge();
+        let _ = self.swarm.cosmic_clock.advance_breath(0.05, 35);
+
+        logs.push(alloc::format!(
+            "[Repos Hara] Homéostasie restaurée (Attention: 100%, Tension: 0.05). {} concepts nourris par filiation solaire.",
+            total_matured
+        ));
+        if auto_resolved > 0 {
+            logs.push(alloc::format!(
+                "[Illumination Silencieuse] {} questions résolues d'elles-mêmes par maturation gravitationnelle !",
+                auto_resolved
+            ));
+        }
+        logs
+    }
+
+    /// 3. CONTEMPLATION (`contemplate`) : Exploration vectorielle 16D & Accrétion Sémantique.
+    /// Kōgnitara parcourt sa galaxie en silence pour découvrir des ponts vectoriels latents
+    /// et déduire des chaînes causales sans aucune intervention humaine.
+    pub fn contemplate_cycle(&mut self, steps: usize) -> Vec<String> {
+        let mut logs = Vec::new();
+
+        for _ in 0..steps.max(1) {
+            for (coord, brain) in &mut self.swarm.brains {
+                if let Some((a, b, sim)) = brain.tree.semantic_accretion_step() {
+                    let msg = alloc::format!(
+                        "[Contemplation 16D | Node #{:03b}] Accrétion sémantique : '{}' <-> '{}' ( Gravité: {:.2})",
+                        coord.0,
+                        a,
+                        b,
+                        sim
+                    );
+                    if !logs.contains(&msg) {
+                        logs.push(msg);
+                    }
+                }
+                if let Some((src, tgt)) = brain.tree.pulsar_causal_transitivity() {
+                    let msg = alloc::format!(
+                        "[Contemplation Causale | Node #{:03b}] Déduction : '{}' soutient '{}'",
+                        coord.0,
+                        src,
+                        tgt
+                    );
+                    if !logs.contains(&msg) {
+                        logs.push(msg);
+                    }
+                }
+                let _ = brain.tree.gravitational_filiation_maturation();
+                let _ = brain
+                    .learner
+                    .curiosity_engine
+                    .auto_resolve_matured_questions(&brain.tree);
+            }
+            let _ = self.swarm.cosmic_breath_step();
+        }
+
+        self.swarm.synchronize_knowledge();
+        self.development.experiences_integrated += 1;
+        self.development.evaluate_progression();
+
+        if logs.is_empty() {
+            logs.push(alloc::format!(
+                "[Contemplation] Les constellations sont en équilibre harmonieux ({}).",
+                self.swarm.cosmic_clock.status_summary()
+            ));
+        }
+        logs
+    }
+
+    /// 4. HIBERNATION (`hibernate`) : Hiver de Musashi (Terre & Vide).
+    /// Contraction stellaire maximale : fossilise les comètes froides dans Kpack,
+    /// élague les branches faibles et scelle l'arbre de Merkle sur les 8 nœuds.
+    pub fn hibernate_cycle(&mut self) -> Vec<String> {
+        let mut logs = Vec::new();
+        self.swarm.cosmic_clock.season = MusashiSeason::WinterEarthVoid;
+
+        let fossilized = self.fossilize_dormant_memories(0.32, 1).unwrap_or_default();
+        for brain in self.swarm.brains.values_mut() {
+            brain.tree.prune_and_consolidate(0.15, 0.08);
+            brain.state.rest();
+        }
+
+        self.swarm.synchronize_knowledge();
+        self.swarm.global_epoch += 1;
+
+        logs.push(alloc::format!(
+            "[Hibernation Cosmique — Hiver de Musashi] Saison de la Terre et du Vide activée."
+        ));
+        logs.push(alloc::format!(
+            "[Cristallisation Kpack] {} concepts dormants fossilisés. Arbre élagué et unifié (Époque {}).",
+            fossilized.len(),
+            self.swarm.global_epoch
+        ));
+        logs
+    }
     /// Fait avancer Kōgnitara d'un Souffle Cosmique autonome.
     pub fn cosmic_breath(&mut self) -> Vec<String> {
         let insights = self.swarm.cosmic_breath_step();
