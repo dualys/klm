@@ -136,13 +136,8 @@ impl LivingManual {
         }
 
         // Dynamically weave the ESSENCE prose from the concept and its graph neighborhood
-        let woven_essence = Self::weave_essence_prose(
-            concept,
-            &grows_from,
-            &composes,
-            &sustains,
-            &harmonizes,
-        );
+        let woven_essence =
+            Self::weave_essence_prose(concept, &grows_from, &composes, &sustains, &harmonizes);
 
         // Gather Family, Dream Oracle, and Elder notes
         let mut notes = Vec::new();
@@ -160,7 +155,10 @@ impl LivingManual {
                 ));
             }
             ConceptOrigin::DreamSynthesized { dream_id } => {
-                notes.push(format!("Synthesized during nocturnal dream '{}'.", dream_id));
+                notes.push(format!(
+                    "Synthesized during nocturnal dream '{}'.",
+                    dream_id
+                ));
             }
             ConceptOrigin::ReawakenedFossil { fossil_hash } => {
                 notes.push(format!(
@@ -181,7 +179,10 @@ impl LivingManual {
         }
 
         for val in &sanctuary.values {
-            if val.title.to_lowercase().contains(&concept.label.to_lowercase())
+            if val
+                .title
+                .to_lowercase()
+                .contains(&concept.label.to_lowercase())
                 || val
                     .principle
                     .to_lowercase()
@@ -199,7 +200,10 @@ impl LivingManual {
                 || &oracle.bridged_concepts.1 == id
                 || &oracle.emergent_concept == id
             {
-                notes.push(format!("Elder Oneiros (Dream Oracle): {}", oracle.revelation));
+                notes.push(format!(
+                    "Elder Oneiros (Dream Oracle): {}",
+                    oracle.revelation
+                ));
             }
         }
 
@@ -321,10 +325,7 @@ impl LivingManual {
 
         if !entry.filiation_chain.is_empty() {
             out.push_str("FILIATION & ONTOLOGY\n");
-            out.push_str(&format!(
-                "    {}\n\n",
-                entry.filiation_chain.join(" -> ")
-            ));
+            out.push_str(&format!("    {}\n\n", entry.filiation_chain.join(" -> ")));
         }
 
         out.push_str(&format!(
@@ -391,7 +392,77 @@ impl LivingManual {
 
         out
     }
+    /// Formats a `LivingManualEntry` as a clean, standard Markdown document.
+    pub fn render_markdown_page(entry: &LivingManualEntry) -> String {
+        let mut out = String::new();
 
+        out.push_str(&format!("# Concept: `{}`\n\n", entry.concept_id.0));
+
+        out.push_str("## Synopsis\n");
+        out.push_str(&format!("> {}\n\n", entry.synopsis));
+
+        if !entry.filiation_chain.is_empty() {
+            out.push_str("## Filiation & Ontology\n");
+            out.push_str(&format!("`{}`\n\n", entry.filiation_chain.join(" -> ")));
+        }
+
+        out.push_str(&format!(
+            "## Essence\n*Woven across {} experiences — Confidence: {}%*\n\n",
+            entry.experience_count, entry.confidence_percent
+        ));
+        out.push_str(&format!("{}\n\n", entry.woven_essence));
+
+        out.push_str("## Relations in the Tree of Knowledge\n");
+        if !entry.grows_from.is_empty() {
+            out.push_str(&format!(
+                "* **[GrowsFrom]** {}\n",
+                entry.grows_from.join(", ")
+            ));
+        }
+        if !entry.composes.is_empty() {
+            out.push_str(&format!("* **[Composes]** {}\n", entry.composes.join(", ")));
+        }
+        if !entry.sustains.is_empty() {
+            out.push_str(&format!("* **[Sustains]** {}\n", entry.sustains.join(", ")));
+        }
+        if !entry.harmonizes.is_empty() {
+            out.push_str(&format!(
+                "* **[Harmonizes]** {}\n",
+                entry.harmonizes.join(", ")
+            ));
+        }
+        if !entry.contradicts.is_empty() {
+            out.push_str(&format!(
+                "* **[Contradicts]** {}\n",
+                entry.contradicts.join(", ")
+            ));
+        }
+        out.push('\n');
+
+        if !entry.family_and_elders_notes.is_empty() {
+            out.push_str("## Family & Elders' Notes\n");
+            for note in &entry.family_and_elders_notes {
+                out.push_str(&format!("* {}\n", note));
+            }
+            out.push('\n');
+        }
+
+        if let Some(q) = &entry.socratic_inquiry {
+            out.push_str("## Socratic Inquiry\n");
+            out.push_str(&format!("> *\"{}\"*\n\n", q));
+        }
+
+        if !entry.see_also.is_empty() {
+            let refs: Vec<String> = entry
+                .see_also
+                .iter()
+                .map(|c| format!("`kog {}`", c))
+                .collect();
+            out.push_str("## See Also\n");
+            out.push_str(&format!("{}\n", refs.join(", ")));
+        }
+        out
+    }
     /// Renders a self-contained, offline HTML page for the Local Web Ark (`http://sanctuary.local`)
     /// so the family can browse Kōgnitara's woven knowledge even during a complete internet blackout.
     pub fn render_html_ark_page(entry: &LivingManualEntry) -> String {

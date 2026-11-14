@@ -328,51 +328,43 @@ impl KnowledgeTree {
             .collect()
     }
 
-    /// Resolves a concept by exact ID, case-insensitive label, tag, or 16D semantic similarity fallback.
+    /// Resolves a concept by exact ID, case-insensitive label, tag, or partial match.
     pub fn resolve_concept(&self, query: &str) -> Option<&Concept> {
         let trimmed = query.trim();
         if trimmed.is_empty() {
             return None;
         }
 
+        let lower = trimmed.to_lowercase();
         let direct_id = ConceptId::from(trimmed);
+
+        // 1. Correspondance exacte de l'ID
         if let Some(c) = self.concepts.get(&direct_id) {
             return Some(c);
         }
 
-        let lower = trimmed.to_lowercase();
         let normalized_id = ConceptId::from(lower.replace(' ', "_"));
         if let Some(c) = self.concepts.get(&normalized_id) {
             return Some(c);
         }
 
-        if let Some(c) = self
-            .concepts
-            .values()
-            .find(|c| c.label.to_lowercase() == lower || c.id.0.to_lowercase() == lower)
-        {
+        // 2. Correspondance partielle sur le label ou l'ID (ex: "cigale" trouvera "Prévoyance (La Cigale...)")
+        if let Some(c) = self.concepts.values().find(|c| {
+            c.label.to_lowercase().contains(&lower) || c.id.0.to_lowercase().contains(&lower)
+        }) {
             return Some(c);
         }
 
+        // 3. Correspondance partielle sur les tags
         if let Some(c) = self
             .concepts
             .values()
-            .find(|c| c.tags.iter().any(|t| t.to_lowercase() == lower))
+            .find(|c| c.tags.iter().any(|t| t.to_lowercase().contains(&lower)))
         {
             return Some(c);
         }
-
-        let cpu = CpuBackend::new();
-        let top = self.semantic_search(trimmed, 1, &cpu);
-        if let Some((best_id, score)) = top.first()
-            && *score > 0.35
-        {
-            return self.concepts.get(best_id);
-        }
-
         None
     }
-
     /// Traces the ontological filiation chain leading to and emerging from a concept
     /// (e.g., `earth -> flora -> seed -> tree -> forest`).
     pub fn trace_filiation_chain(&self, id: &ConceptId) -> Vec<String> {
@@ -563,7 +555,8 @@ impl KnowledgeTree {
         );
         fused.embedding = blended_emb;
         fused.confidence = ((a.confidence + b.confidence) * 0.55).clamp(0.1, 0.95);
-        fused.affective_valence = ((a.affective_valence + b.affective_valence) * 0.5).clamp(-1.0, 1.0);
+        fused.affective_valence =
+            ((a.affective_valence + b.affective_valence) * 0.5).clamp(-1.0, 1.0);
 
         for tag in a.tags.iter().chain(b.tags.iter()) {
             if !fused.tags.contains(tag) {
@@ -654,7 +647,11 @@ impl KnowledgeTree {
         description: &str,
         dream_id: &str,
     ) -> Result<ConceptId> {
-        let new_id = ConceptId(format!("concept_dream_{}_{}", dream_id, self.concepts.len()));
+        let new_id = ConceptId(format!(
+            "concept_dream_{}_{}",
+            dream_id,
+            self.concepts.len()
+        ));
         let mut new_concept = Concept::new(
             new_id.clone(),
             new_label,

@@ -124,7 +124,11 @@ impl Kognitara {
         self.development.evaluate_progression();
         result
     }
-
+    /// Renders a Markdown living manual page for the given concept query.
+    pub fn render_markdown_page(&self, query: &str) -> Option<String> {
+        let entry = self.manual_entry(query)?;
+        Some(LivingManual::render_markdown_page(&entry))
+    }
     /// Allows a recognized family member to directly teach Kōgnitara a new concept and family value.
     pub fn teach_concept(
         &mut self,

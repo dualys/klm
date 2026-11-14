@@ -31,6 +31,15 @@ fn cli() -> Command {
         .subcommand(Command::new("teach").about("Teach Kognitara"))
         .subcommand(Command::new("oracles").about("Display dream oracles"))
         .subcommand(
+            Command::new("man")
+                .about("Read the Living Manual page for a concept")
+                .arg(
+                    Arg::new("concept")
+                        .required(true)
+                        .help("The concept to look up (e.g., 'family', 'sovereignty')"),
+                ),
+        )
+        .subcommand(
             Command::new("tag")
                 .about("Manage kognitara tree")
                 .subcommands(&[
@@ -305,6 +314,13 @@ fn interact(kognitara: &mut Kognitara) {
 
         if trimmed.eq_ignore_ascii_case("pack") {
             pack(kognitara, DATA);
+        } else if trimmed.to_lowercase().starts_with("man ") {
+            let concept = trimmed[4..].trim();
+            if let Some(page) = kognitara.render_markdown_page(concept) {
+                print!("{page}");
+            } else {
+                ko(&format!("Concept '{}' not found.", concept));
+            }
         } else if trimmed.eq_ignore_ascii_case("unpack") {
             unpack(kognitara, DATA);
         } else if trimmed.eq_ignore_ascii_case("teach") {
@@ -348,7 +364,7 @@ fn ok(message: &str) {
     let cr = " ]".cyan().bold();
     let pad = " ".repeat(padding);
 
-    println!("{}{}{}{}{}{}", star, msg, pad, cl, ok_str, cr);
+    eprintln!("{}{}{}{}{}{}", star, msg, pad, cl, ok_str, cr);
 }
 
 fn ko(message: &str) {
@@ -356,7 +372,7 @@ fn ko(message: &str) {
     let visible_len = message.chars().count() as u16;
     let padding = cols.saturating_sub(visible_len).saturating_sub(15) as usize;
 
-    println!(
+    eprintln!(
         "{} {}{}{}{}{}",
         " !".red().bold(),
         message.white().bold(),
@@ -473,6 +489,18 @@ fn unpack(kognitara: &mut Kognitara, path: &str) -> bool {
 
 fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
     match matches.subcommand() {
+        Some(("man", sub)) => {
+            let concept = sub.get_one::<String>("concept").expect("concept required");
+            if let Some(page) = kognitara.render_markdown_page(concept) {
+                println!("{}", page);
+                ok(&format!("{concept} page has been exported successfully"));
+            } else {
+                ko(&format!(
+                    "Concept '{}' not found in the Knowledge Tree.",
+                    concept
+                ));
+            }
+        }
         Some(("tag", sub)) => match sub.subcommand() {
             Some(("list", _)) => {
                 list_tags();
@@ -538,7 +566,7 @@ fn teach_kognitara(kognitara: &mut Kognitara) {
     let tags = Text::new("Enter tags separate by a comma")
         .prompt()
         .expect("tags it's requiredd");
-    let t = tags.split(",").collect::<Vec<&str>>();
+    let t: Vec<&str> = tags.split(",").map(|s| s.trim()).collect();
     if kognitara
         .teach_concept(&ki(), &label.to_lowercase(), &label, &course, &t)
         .is_ok()
