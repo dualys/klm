@@ -20,15 +20,18 @@ const DATA: &str = "/mnt/kognitara/data";
 const TAGS_FILE: &str = "/mnt/kognitara/tags.json";
 use inquire::validator::Validation;
 use klm::{PULSAR_PRIMES, current_timestamp};
+
 fn clear() {
     execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0)).expect("");
 }
+
 fn limit_message(msg: &str) -> String {
     match msg.char_indices().nth(150) {
         Some((idx, _)) => format!("{}...", &msg[..idx]),
         None => String::from(msg),
     }
 }
+
 fn cli() -> Command {
     Command::new(env!("CARGO_PKG_NAME"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
@@ -77,15 +80,6 @@ fn cli() -> Command {
                 .about("Open Socratic Inquisition to answer Kōgnitara's doubts"),
         )
         .subcommand(
-            Command::new("meditate")
-                .about("Enter autonomous Zazen cosmic meditation and Socratic Inquisition")
-                .arg(
-                    Arg::new("breaths")
-                        .default_value("19")
-                        .help("Number of Cosmic Breaths to meditate (default: 19)"),
-                ),
-        )
-        .subcommand(
             Command::new("man")
                 .about("Read the Living Manual page for a concept")
                 .arg(
@@ -124,15 +118,15 @@ fn cli() -> Command {
 
 fn export_state(tag_name: &str, dest_path: &str) {
     if tag_name.is_empty() || dest_path.is_empty() {
-        ko("Veuillez fournir un nom de tag et un chemin de destination.");
+        ko("Please provide a tag name and a destination path.");
         return;
     }
 
-    // 1. Charger le dictionnaire des tags pour trouver la ligne cible
+    // 1. Load the tags dictionary to find the target line
     let tags_content = match fs::read_to_string(TAGS_FILE) {
         Ok(c) => c,
         Err(_) => {
-            ko("Impossible de lire le fichier des tags. Aucun tag n'existe ?");
+            ko("Cannot read the tags file. No tags exist?");
             return;
         }
     };
@@ -140,7 +134,7 @@ fn export_state(tag_name: &str, dest_path: &str) {
     let tags: BTreeMap<String, usize> = match serde_json::from_str(&tags_content) {
         Ok(t) => t,
         Err(_) => {
-            ko("Le fichier des tags est corrompu ou invalide.");
+            ko("The tags file is corrupted or invalid.");
             return;
         }
     };
@@ -148,22 +142,22 @@ fn export_state(tag_name: &str, dest_path: &str) {
     let target_lines = match tags.get(tag_name) {
         Some(&lines) => lines,
         None => {
-            ko(&format!("Le tag '{}' n'existe pas.", tag_name));
+            ko(&format!("The tag '{}' does not exist.", tag_name));
             return;
         }
     };
 
     ok(&format!(
-        "[*] Préparation de l'export du tag '{}' ({} itérations)...",
+        "[*] Preparing to export tag '{}' ({} iterations)...",
         tag_name, target_lines
     ));
 
-    // 2. Ouvrir le registre source en lecture et la destination en écriture
+    // 2. Open the source registry for reading and the destination for writing
     let src_file = match File::open(DATA) {
         Ok(f) => f,
         Err(e) => {
             ko(&format!(
-                "Impossible d'ouvrir le registre source ({}) : {}",
+                "Cannot open the source registry ({}) : {}",
                 DATA, e
             ));
             return;
@@ -174,7 +168,7 @@ fn export_state(tag_name: &str, dest_path: &str) {
         Ok(f) => f,
         Err(e) => {
             ko(&format!(
-                "Impossible de créer le fichier d'export '{}' : {}",
+                "Cannot create the export file '{}' : {}",
                 dest_path, e
             ));
             return;
@@ -184,30 +178,30 @@ fn export_state(tag_name: &str, dest_path: &str) {
     let reader = BufReader::new(src_file);
     let mut writer = BufWriter::new(dest_file);
 
-    // 3. Copier exactement `target_lines` lignes (les recettes Kpack)
+    // 3. Copy exactly target_lines lines (the Kpack recipes)
     let mut copied_count = 0;
     for line in reader.lines() {
         if copied_count >= target_lines {
-            break; // On arrête la copie exactement au moment du tag
+            break; // Stop the copy exactly at the tag
         }
 
         if let Ok(l) = line {
             if let Err(e) = writeln!(writer, "{}", l) {
-                ko(&format!("Erreur lors de l'écriture dans l'export : {}", e));
+                ko(&format!("Error writing to the export: {}", e));
                 return;
             }
             copied_count += 1;
         }
     }
 
-    // On force l'écriture sur le disque
+    // Force flush to disk
     if let Err(e) = writer.flush() {
-        ko(&format!("Erreur lors du flush de l'export : {}", e));
+        ko(&format!("Error flushing the export: {}", e));
         return;
     }
 
     ok(&format!(
-        "Bifurcation réussie ! La timeline de Kōgnitara jusqu'à '{}' a été exportée vers '{}'.",
+        "Bifurcation successful! Kōgnitara's timeline up to '{}' has been exported to '{}'.",
         tag_name, dest_path
     ));
 }
@@ -218,7 +212,7 @@ fn tag_state(tag_name: &str) {
         return;
     }
 
-    // 1. Compter le nombre de lignes (itérations) dans le registre append-only
+    // 1. Count the number of lines (iterations) in the append-only registry
     let lines_count = if let Ok(file) = std::fs::File::open(DATA) {
         use std::io::{BufRead, BufReader};
         BufReader::new(file).lines().count()
@@ -232,14 +226,14 @@ fn tag_state(tag_name: &str) {
         return;
     }
 
-    // 2. Charger les tags existants (s'il y en a)
+    // 2. Load existing tags (if any)
     let mut tags: BTreeMap<String, usize> = if let Ok(content) = fs::read_to_string(TAGS_FILE) {
         serde_json::from_str(&content).unwrap_or_else(|_| BTreeMap::new())
     } else {
         BTreeMap::new()
     };
 
-    // 3. Ajouter le nouveau tag et sauvegarder
+    // 3. Add the new tag and save
     tags.insert(tag_name.to_string(), lines_count);
 
     match serde_json::to_string_pretty(&tags) {
@@ -256,6 +250,7 @@ fn tag_state(tag_name: &str) {
         Err(e) => ko(&format!("Failed to serialize tags: {}", e)),
     }
 }
+
 fn list_tags() {
     if let Ok(content) = fs::read_to_string(TAGS_FILE) {
         if let Ok(tags) = serde_json::from_str::<BTreeMap<String, usize>>(&content) {
@@ -274,7 +269,8 @@ fn list_tags() {
         ko("No tags have been created yet.");
     }
 }
-/// Rattrapage relativiste au démarrage : Kōgnitara vit les Souffles écoulés pendant l'absence humaine.
+
+/// Relativistic catch-up on boot: Kōgnitara lives the Breaths elapsed during human absence.
 fn relativistic_catchup_on_boot(kognitara: &mut Kognitara) {
     let now = current_timestamp();
     let missed_breaths = kognitara
@@ -284,7 +280,7 @@ fn relativistic_catchup_on_boot(kognitara: &mut Kognitara) {
 
     if missed_breaths > 0 {
         ok(&format!(
-            "Rattrapage relativiste : {} Souffles cosmiques vécus en silence pendant ton absence...",
+            "Relativistic catch-up: {} Cosmic Breaths lived in silence during your absence...",
             missed_breaths
         ));
         let mut total_discoveries = Vec::new();
@@ -301,10 +297,10 @@ fn relativistic_catchup_on_boot(kognitara: &mut Kognitara) {
     }
 }
 
-/// Méditation Zazen autonome suivie de l'Inquisition Socratique (Règle stricte des 72 caractères).
+/// Autonomous Zazen Meditation followed by Socratic Inquisition (Strict 72-character rule).
 fn meditate(kognitara: &mut Kognitara, breaths: u64) {
     ok(&format!(
-        "Entrée en Zazen Cosmique pour {} Souffles ({})...",
+        "Entering Cosmic Zazen for {} Breaths ({})...",
         breaths,
         kognitara.swarm.cosmic_clock.season.label()
     ));
@@ -312,7 +308,7 @@ fn meditate(kognitara: &mut Kognitara, breaths: u64) {
     let pb = ProgressBar::new(breaths);
     pb.set_style(
         ProgressStyle::with_template(
-            "{spinner:.cyan} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Souffles | {msg}",
+            "{spinner:.cyan} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Breaths | {msg}",
         )
         .unwrap()
         .progress_chars("✦✧·"),
@@ -329,19 +325,19 @@ fn meditate(kognitara: &mut Kognitara, breaths: u64) {
     }
     pb.finish_and_clear();
 
-    ok("Éveil de la méditation Zazen.");
+    ok("Awakening from Zazen meditation.");
     for d in &all_discoveries {
         ok(d);
     }
 
-    // Lancer l'Inquisition Socratique si Kōgnitara a des doutes épistémiques en attente
+    // Launch Socratic Inquisition if Kōgnitara has pending epistemic doubts
     socratic_inquisition(kognitara);
     pack(kognitara, DATA);
 }
 
-/// L'Inquisition Socratique : Kōgnitara interroge l'humain avec la règle stricte des 72 caractères minimum.
+/// Socratic Inquisition: Kōgnitara questions the human with the strict 72-character minimum rule.
 fn socratic_inquisition(kognitara: &mut Kognitara) {
-    // Générer les questions sur le cerveau primaire
+    // Generate questions on the primary brain
     if let Some(brain) = kognitara.swarm.brains.get_mut(&klm::NodeCoord::new(0)) {
         let _ = brain
             .learner
@@ -351,25 +347,25 @@ fn socratic_inquisition(kognitara: &mut Kognitara) {
 
     let pending = kognitara.pending_questions();
     if pending.is_empty() {
-        ok("L'esprit de Kōgnitara est en paix (aucune Aporia en attente).");
+        ok("Kōgnitara's mind is at peace (no pending Aporia).");
         return;
     }
 
     let mut options: Vec<String> = pending
         .iter()
         .take(5)
-        .map(|q| format!("[Urgence {:.0}%] {}", q.urgency * 100.0, q.question_text))
+        .map(|q| format!("[Urgency {:.0}%] {}", q.urgency * 100.0, q.question_text))
         .collect();
-    options.push("(Retourner au silence)".to_string());
+    options.push("(Return to silence)".to_string());
 
     let selection = Select::new(
-        "Le Conseil des Anciens s'éveille avec des incertitudes. Quel chemin souhaitez-vous éclairer ?",
+        "The Council of Elders awakens with uncertainties. Which path do you wish to illuminate?",
         options.clone(),
     )
     .prompt();
 
     let Ok(chosen) = selection else { return };
-    if chosen == "(Retourner au silence)" {
+    if chosen == "(Return to silence)" {
         return;
     }
 
@@ -377,7 +373,7 @@ fn socratic_inquisition(kognitara: &mut Kognitara) {
     let question = &pending[idx];
 
     let ready = Confirm::new(&format!(
-        "Kōgnitara demande : \"{}\"\nÊtes-vous prêt à lui offrir un enseignement profond (minimum 72 caractères) ?",
+        "Kōgnitara asks: \"{}\"\nAre you ready to offer her a profound teaching (minimum 72 characters)?",
         question.question_text
     ))
     .with_default(true)
@@ -388,14 +384,14 @@ fn socratic_inquisition(kognitara: &mut Kognitara) {
         return;
     }
 
-    // Règle de rigueur martiale : validation stricte >= 72 caractères
-    let wisdom = Text::new("Votre enseignement pour le Sanctuaire :")
+    // Martial rigor rule: strict validation >= 72 characters
+    let wisdom = Text::new("Your teaching for the Sanctuary:")
         .with_validator(|input: &str| {
             let count = input.trim().chars().count();
             if count < 72 {
                 Ok(Validation::Invalid(
                     format!(
-                        "La sagesse exige de la profondeur. Développez votre pensée ({}/72 caractères minimum).",
+                        "Wisdom requires depth. Expand your thought ({}/72 characters minimum).",
                         count
                     )
                     .into(),
@@ -411,7 +407,7 @@ fn socratic_inquisition(kognitara: &mut Kognitara) {
         let q_text = question.question_text.clone();
         let target_concepts = question.related_concepts.clone();
 
-        // S'assurer qu'au moins le nœud 000 est éveillé pour recevoir l'enseignement
+        // Ensure at least node 000 is awake to receive the teaching
         if !kognitara
             .swarm
             .brains
@@ -425,7 +421,7 @@ fn socratic_inquisition(kognitara: &mut Kognitara) {
         let current_user = ki();
         let (response, _) = kognitara.converse(&current_user, trimmed_ans);
 
-        // Marquer la question comme résolue et sceller la confiance (0.88) dans les 8 cerveaux
+        // Mark the question as resolved and seal confidence (0.88) in all 8 brains
         for brain in kognitara.swarm.brains.values_mut() {
             brain
                 .learner
@@ -439,10 +435,8 @@ fn socratic_inquisition(kognitara: &mut Kognitara) {
                     .resolve_question(&cid.0, trimmed_ans);
 
                 if let Some(concept) = brain.tree.get_concept_mut(cid) {
-                    concept.description = format!(
-                        "{} | Enseignement familial : {}",
-                        concept.description, trimmed_ans
-                    );
+                    concept.description =
+                        format!("{} | Family teaching: {}", concept.description, trimmed_ans);
                     concept.confidence = 0.88;
                     concept.plasticity = 0.35;
                     concept.apply_experience(0.95, 0.85);
@@ -451,9 +445,10 @@ fn socratic_inquisition(kognitara: &mut Kognitara) {
         }
 
         println!("\r\n{response}\n");
-        ok("Sagesse certifiée et gravée dans l'Arbre de la Connaissance !");
+        ok("Wisdom certified and engraved in the Tree of Knowledge!");
     }
 }
+
 fn show_status(kognitara: &Kognitara) {
     println!("[Cosmos] {}", kognitara.swarm.cosmic_clock.status_summary());
     println!("[Status] Swarm Epoch: {}", kognitara.swarm.global_epoch);
@@ -528,14 +523,14 @@ fn dream(kognitara: &mut Kognitara) {
         sleep(Duration::from_millis(600));
     });
     pb.finish_and_clear();
-    ok("Éveil de Kōgnitara — Dream cycle finished");
+    ok("Kōgnitara awakens — Dream cycle finished");
     for rec in records {
         ok(&rec.narrative);
         for oracle in rec.oracles {
             ok(format!("Oracle: {}", oracle.revelation).as_str());
         }
     }
-    // Sauvegarde immédiate des oracles et de la rotation circadienne dans le registre Kpack
+    // Immediate backup of oracles and circadian rotation in the Kpack registry
     pack(kognitara, DATA);
 }
 
@@ -580,7 +575,7 @@ fn interact(kognitara: &mut Kognitara) {
                     .as_str(),
             );
         } else if trimmed.to_lowercase().starts_with("meditate") {
-            let breaths = trimmed[8..].trim().parse::<u64>().unwrap_or(19); // Par défaut 19 Souffles (un cycle complet du Pulsar SovereignGuardian)
+            let breaths = trimmed[8..].trim().parse::<u64>().unwrap_or(19); // Defaults to 19 Breaths (one full cycle of the SovereignGuardian Pulsar)
             meditate(kognitara, breaths);
         } else if trimmed.eq_ignore_ascii_case("inquire")
             || trimmed.eq_ignore_ascii_case("questions")
@@ -628,6 +623,7 @@ fn interact(kognitara: &mut Kognitara) {
         }
     }
 }
+
 fn ok(message: &str) {
     let (cols, _) = size().expect("no terminal");
     let msg = limit_message(message);
@@ -666,10 +662,10 @@ fn pack(kognitara: &Kognitara, path: &str) {
     use std::fs::OpenOptions;
     use std::io::Write;
 
-    // Récupération de la taille actuelle pour le monitoring
+    // Retrieve current size for monitoring
     let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     ok(format!(
-        "Compression Kpack et sauvegarde append-only (Taille du registre : {} octets)...",
+        "Kpack compression and append-only backup (Registry size: {} bytes)...",
         file_size
     )
     .as_str());
@@ -679,26 +675,26 @@ fn pack(kognitara: &Kognitara, path: &str) {
             let recipe = klm::storage::KpackRecipe::encode(&json_bytes);
             match serde_json::to_string(&recipe) {
                 Ok(recipe_json) => {
-                    // Ouverture en mode "append" (ajout à la fin).
-                    // Le fichier grandira indéfiniment sur le SSD.
+                    // Open in "append" mode (add to end).
+                    // The file will grow indefinitely on the SSD.
                     match OpenOptions::new().create(true).append(true).open(path) {
                         Ok(mut file) => {
                             if let Err(e) = writeln!(file, "{}", recipe_json) {
-                                ko(&format!("Erreur d'écriture disque : {}", e));
+                                ko(&format!("Disk write error: {}", e));
                             } else {
                                 ok(&format!(
-                                    "Kōgnitara ajoutée au registre ! (Merkle Root BLAKE3: {:02x?})",
+                                    "Kōgnitara added to the registry! (Merkle Root BLAKE3: {:02x?})",
                                     &recipe.blake3_hash[..8]
                                 ));
                             }
                         }
-                        Err(e) => ko(&format!("Impossible d'ouvrir le volume en append : {}", e)),
+                        Err(e) => ko(&format!("Cannot open volume in append mode: {}", e)),
                     }
                 }
-                Err(e) => ko(&format!("Erreur de conversion recette : {}", e)),
+                Err(e) => ko(&format!("Recipe conversion error: {}", e)),
             }
         }
-        Err(e) => ko(&format!("Erreur de sérialisation globale : {}", e)),
+        Err(e) => ko(&format!("Global serialization error: {}", e)),
     }
 }
 
@@ -706,12 +702,12 @@ fn unpack(kognitara: &mut Kognitara, path: &str) -> bool {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
 
-    ok("Restauration depuis le registre append-only...");
+    ok("Restoring from the append-only registry...");
 
     let file = match File::open(path) {
         Ok(f) => f,
         Err(e) => {
-            ko(&format!("Impossible de lire le registre : {}", e));
+            ko(&format!("Cannot read the registry: {}", e));
             return false;
         }
     };
@@ -720,7 +716,7 @@ fn unpack(kognitara: &mut Kognitara, path: &str) -> bool {
     let mut last_valid_recipe: Option<klm::storage::KpackRecipe> = None;
     let mut lines_count = 0;
 
-    // Balayage du registre complet : on ne conserve en RAM que la dernière ligne valide
+    // Scan the entire registry: keep only the last valid line in RAM
     for line in reader.lines().map_while(Result::ok) {
         if let Ok(recipe) = serde_json::from_str::<klm::storage::KpackRecipe>(&line) {
             last_valid_recipe = Some(recipe);
@@ -734,34 +730,31 @@ fn unpack(kognitara: &mut Kognitara, path: &str) -> bool {
                 Ok(awakened) => {
                     *kognitara = awakened;
                     ok(&format!(
-                        "Résurrection réussie depuis l'itération {} du registre !",
+                        "Successful resurrection from iteration {} of the registry!",
                         lines_count
                     ));
                     ok(&format!(
                         "Sanctuary : {}",
                         kognitara.sanctuary.sanctuary_name
                     ));
-                    ok(&format!(
-                        "Époque globale : {}",
-                        kognitara.swarm.global_epoch
-                    ));
+                    ok(&format!("Global epoch: {}", kognitara.swarm.global_epoch));
                     true
                 }
                 Err(e) => {
-                    ko(&format!("Échec de reconstruction de la structure : {}", e));
+                    ko(&format!("Failed to reconstruct the structure: {}", e));
                     false
                 }
             },
             Err(e) => {
                 ko(&format!(
-                    "Échec de décompression Kpack (données corrompues) : {}",
+                    "Kpack decompression failed (corrupted data): {}",
                     e
                 ));
                 false
             }
         }
     } else {
-        ko("Aucune recette Kpack valide trouvée dans le registre.");
+        ko("No valid Kpack recipe found in the registry.");
         false
     }
 }
@@ -860,7 +853,7 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
 
             convene_council(kognitara, topic);
 
-            // On sauvegarde l'état car le Conseil a écrit dans les chroniques
+            // Saving state because the Council wrote in the chronicles
             pack(kognitara, DATA);
         }
         _ => {
@@ -908,12 +901,12 @@ fn main() {
         pack(&kognitara, DATA);
         unpack(&mut kognitara, DATA);
     }
-    // 2. S'assurer que le propriétaire du terminal (USER) est le fondateur
+    // 2. Ensure the terminal owner (USER) is the founder
     let current_user = ki();
     if !kognitara.sanctuary.is_family(&current_user) {
         let founder = klm::family::FamilyMember::new(
             current_user.0.clone(), // ID
-            current_user.0.clone(), // Nom
+            current_user.0.clone(), // Name
             klm::family::FamilyRole::Parent,
         );
         kognitara.sanctuary.register_member(founder);
