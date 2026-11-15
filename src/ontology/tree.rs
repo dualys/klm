@@ -548,6 +548,25 @@ impl KnowledgeTree {
             .collect()
     }
 
+    /// Recherche uniquement une correspondance stricte (priorité absolue à l'essaim)
+    pub fn resolve_exact(&self, query: &str) -> Option<&Concept> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let lower = trimmed.to_lowercase();
+
+        if let Some(c) = self.concepts.get(&ConceptId::from(trimmed)) {
+            return Some(c);
+        }
+        if let Some(c) = self.concepts.get(&ConceptId::from(lower.replace(' ', "_"))) {
+            return Some(c);
+        }
+        self.concepts
+            .values()
+            .find(|c| c.label.to_lowercase() == lower)
+    }
+
     /// Resolves a concept by exact ID, case-insensitive label, tag, or partial match.
     pub fn resolve_concept(&self, query: &str) -> Option<&Concept> {
         let trimmed = query.trim();

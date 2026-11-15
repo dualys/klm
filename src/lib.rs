@@ -431,15 +431,21 @@ impl Kognitara {
     }
 
     /// Generates a structured `LivingManualEntry` (`kog <query>`) from Kōgnitara's woven knowledge.
-    /// Generates a structured `LivingManualEntry` (`kog <query>`) from Kōgnitara's woven knowledge.
     pub fn manual_entry(&self, query: &str) -> Option<LivingManualEntry> {
-        // We search the swarm for the first brain that possesses this concept
+        // 1. Priorité absolue : on cherche un match EXACT dans tous les cerveaux d'abord
         let brain = self
             .swarm
             .brains
             .values()
-            .find(|b| b.tree.resolve_concept(query).is_some())
-            // If none have it, we default to central node 0
+            .find(|b| b.tree.resolve_exact(query).is_some())
+            // 2. Si aucun cerveau ne l'a en exact, on cherche un match partiel dans l'essaim
+            .or_else(|| {
+                self.swarm
+                    .brains
+                    .values()
+                    .find(|b| b.tree.resolve_concept(query).is_some())
+            })
+            // 3. Par défaut, on se rabat sur le nœud central 0
             .or_else(|| self.swarm.brains.get(&NodeCoord::new(0)))?;
 
         let oracles = self.dream_oracles();

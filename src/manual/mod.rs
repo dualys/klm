@@ -177,17 +177,17 @@ impl LivingManual {
                 ));
             }
         }
+        let concept_label_lower = concept.label.to_lowercase();
+
+        // Une petite fonction (closure) pour vérifier si le mot exact existe dans un texte
+        let contains_exact_word = |text: &str| {
+            text.to_lowercase()
+                .split(|c: char| !c.is_alphanumeric()) // On coupe à chaque espace ou ponctuation
+                .any(|word| word == concept_label_lower) // On s'arrête dès qu'un mot matche exactement (une seule fois suffit !)
+        };
 
         for val in &sanctuary.values {
-            if val
-                .title
-                .to_lowercase()
-                .contains(&concept.label.to_lowercase())
-                || val
-                    .principle
-                    .to_lowercase()
-                    .contains(&concept.label.to_lowercase())
-            {
+            if contains_exact_word(&val.title) || contains_exact_word(&val.principle) {
                 notes.push(format!(
                     "Sanctuary Value ({}): \"{}\"",
                     val.entrusted_by.0, val.principle
