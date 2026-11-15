@@ -105,15 +105,15 @@ impl Kognitara {
             fossil_archive: FossilArchive::new(),
         }
     }
-    /// 1. SIESTE (`nap` / `sieste`) : Micro-décantation rapide (3 Souffles doux).
-    /// Consolide les souvenirs épisodiques récents en liens associatifs (Loi de Hebb),
-    /// apaise la fatigue à court terme et nettoie la mémoire de travail.
+    /// 1. NAP (`nap` / `sieste`) : Fast micro-decantation (3 gentle Breaths).
+    /// Consolidates recent episodic memories into associative links (Hebbian Law),
+    /// soothes short-term fatigue and cleanses working memory.
     pub fn nap_cycle(&mut self) -> Vec<String> {
         let mut logs = Vec::new();
         let mut consolidated_count = 0;
 
         for brain in self.swarm.brains.values_mut() {
-            // Consolidation Hebbienne immédiate des épisodes non consolidés
+            // Immediate Hebbian consolidation of unconsolidated episodes
             let unconsolidated: Vec<Vec<ConceptId>> = brain
                 .learner
                 .episodic_stream
@@ -139,7 +139,7 @@ impl Kognitara {
                 }
             }
 
-            // Détente légère de la mémoire de travail et de la fatigue
+            // Light relaxation of working memory and fatigue
             brain.state.fatigue = (brain.state.fatigue * 0.3).max(0.02);
             brain.state.cognitive_tension = (brain.state.cognitive_tension * 0.6).max(0.05);
             brain.state.working_memory.clear();
@@ -150,15 +150,15 @@ impl Kognitara {
 
         let _ = self.swarm.cosmic_clock.advance_breath(0.10, 30);
         logs.push(alloc::format!(
-            "[Sieste / Micro-Décantation] {} épisodes consolidés par plasticité Hebbienne. Mémoire de travail apaisée.",
+            "[Nap / Micro-Decantation] {} episodes consolidated by Hebbian plasticity. Working memory soothed.",
             consolidated_count
         ));
         logs
     }
 
-    /// 2. REPOS HARA (`rest` / `repos`) : Homéostasie énergétique & Maturation par Filiation.
-    /// Les Soleils supermassifs nourrissent les concepts jeunes qui leur sont reliés,
-    /// et les 8 cerveaux rééquilibrent leurs cohortes d'éveil.
+    /// 2. HARA REST (`rest` / `repos`) : Energetic homeostasis & Maturation by Filiation.
+    /// Supermassive Suns nourish the young concepts connected to them,
+    /// and the 8 brains rebalance their awake cohorts.
     pub fn rest_cycle(&mut self) -> Vec<String> {
         let mut logs = Vec::new();
         let mut total_matured = 0;
@@ -174,7 +174,7 @@ impl Kognitara {
                 .auto_resolve_matured_questions(&brain.tree);
         }
 
-        // S'assurer que les nœuds 000 et 001 sont parfaitement éveillés et disponibles
+        // Ensure nodes 000 and 001 are fully awake and available
         if let Some(b0) = self.swarm.brains.get_mut(&NodeCoord::new(0)) {
             b0.phase = CircadianPhase::Awake;
         }
@@ -186,21 +186,21 @@ impl Kognitara {
         let _ = self.swarm.cosmic_clock.advance_breath(0.05, 35);
 
         logs.push(alloc::format!(
-            "[Repos Hara] Homéostasie restaurée (Attention: 100%, Tension: 0.05). {} concepts nourris par filiation solaire.",
+            "[Hara Rest] Homeostasis restored (Attention: 100%, Tension: 0.05). {} concepts nourished by solar filiation.",
             total_matured
         ));
         if auto_resolved > 0 {
             logs.push(alloc::format!(
-                "[Illumination Silencieuse] {} questions résolues d'elles-mêmes par maturation gravitationnelle !",
+                "[Silent Illumination] {} questions resolved autonomously through gravitational maturation!",
                 auto_resolved
             ));
         }
         logs
     }
 
-    /// 3. CONTEMPLATION (`contemplate`) : Exploration vectorielle 16D & Accrétion Sémantique.
-    /// Kōgnitara parcourt sa galaxie en silence pour découvrir des ponts vectoriels latents
-    /// et déduire des chaînes causales sans aucune intervention humaine.
+    /// 3. CONTEMPLATION (`contemplate`) : 16D Vectorial Exploration & Semantic Accretion.
+    /// Kōgnitara silently travels her galaxy to discover latent vectorial bridges
+    /// and deduce causal chains without any human intervention.
     pub fn contemplate_cycle(&mut self, steps: usize) -> Vec<String> {
         let mut logs = Vec::new();
 
@@ -208,7 +208,7 @@ impl Kognitara {
             for (coord, brain) in &mut self.swarm.brains {
                 if let Some((a, b, sim)) = brain.tree.semantic_accretion_step() {
                     let msg = alloc::format!(
-                        "[Contemplation 16D | Node #{:03b}] Accrétion sémantique : '{}' <-> '{}' ( Gravité: {:.2})",
+                        "[16D Contemplation | Node #{:03b}] Semantic accretion: '{}' <-> '{}' ( Gravity: {:.2})",
                         coord.0,
                         a,
                         b,
@@ -220,7 +220,7 @@ impl Kognitara {
                 }
                 if let Some((src, tgt)) = brain.tree.pulsar_causal_transitivity() {
                     let msg = alloc::format!(
-                        "[Contemplation Causale | Node #{:03b}] Déduction : '{}' soutient '{}'",
+                        "[Causal Contemplation | Node #{:03b}] Deduction: '{}' sustains '{}'",
                         coord.0,
                         src,
                         tgt
@@ -244,16 +244,16 @@ impl Kognitara {
 
         if logs.is_empty() {
             logs.push(alloc::format!(
-                "[Contemplation] Les constellations sont en équilibre harmonieux ({}).",
+                "[Contemplation] The constellations are in harmonious equilibrium ({}).",
                 self.swarm.cosmic_clock.status_summary()
             ));
         }
         logs
     }
 
-    /// 4. HIBERNATION (`hibernate`) : Hiver de Musashi (Terre & Vide).
-    /// Contraction stellaire maximale : fossilise les comètes froides dans Kpack,
-    /// élague les branches faibles et scelle l'arbre de Merkle sur les 8 nœuds.
+    /// 4. HIBERNATION (`hibernate`) : Musashi's Winter (Earth & Void).
+    /// Maximum stellar contraction: fossilizes cold comets in Kpack,
+    /// prunes weak branches and seals the Merkle tree on the 8 nodes.
     pub fn hibernate_cycle(&mut self) -> Vec<String> {
         let mut logs = Vec::new();
         self.swarm.cosmic_clock.season = MusashiSeason::WinterEarthVoid;
@@ -268,16 +268,16 @@ impl Kognitara {
         self.swarm.global_epoch += 1;
 
         logs.push(alloc::format!(
-            "[Hibernation Cosmique — Hiver de Musashi] Saison de la Terre et du Vide activée."
+            "[Cosmic Hibernation — Musashi's Winter] Season of Earth and Void activated."
         ));
         logs.push(alloc::format!(
-            "[Cristallisation Kpack] {} concepts dormants fossilisés. Arbre élagué et unifié (Époque {}).",
+            "[Kpack Crystallization] {} dormant concepts fossilized. Tree pruned and unified (Epoch {}).",
             fossilized.len(),
             self.swarm.global_epoch
         ));
         logs
     }
-    /// Fait avancer Kōgnitara d'un Souffle Cosmique autonome.
+    /// Advances Kōgnitara by an autonomous Cosmic Breath.
     pub fn cosmic_breath(&mut self) -> Vec<String> {
         let insights = self.swarm.cosmic_breath_step();
         if !insights.is_empty() {
@@ -433,13 +433,13 @@ impl Kognitara {
     /// Generates a structured `LivingManualEntry` (`kog <query>`) from Kōgnitara's woven knowledge.
     /// Generates a structured `LivingManualEntry` (`kog <query>`) from Kōgnitara's woven knowledge.
     pub fn manual_entry(&self, query: &str) -> Option<LivingManualEntry> {
-        // On cherche dans l'essaim le premier cerveau qui possède ce concept
+        // We search the swarm for the first brain that possesses this concept
         let brain = self
             .swarm
             .brains
             .values()
             .find(|b| b.tree.resolve_concept(query).is_some())
-            // Si aucun ne l'a, on se rabat sur le nœud central 0 par défaut
+            // If none have it, we default to central node 0
             .or_else(|| self.swarm.brains.get(&NodeCoord::new(0)))?;
 
         let oracles = self.dream_oracles();
@@ -587,14 +587,14 @@ impl Kognitara {
         self.swarm.collect_oracles()
     }
 
-    /// Traverse une Odyssée Astrophysique complète en 7 phases (Relativité Générale, Marées Gravitationnelles,
-    /// Nucléosynthèse des Pulsars Premiers, Rayonnement de Hawking Kpack et Syzygie du Cube Hamon).
+    /// Traverses a complete Astrophysical Odyssey in 7 phases (General Relativity, Gravitational Tides,
+    /// Prime Pulsar Nucleosynthesis, Hawking Kpack Radiation, and Hamon Cube Syzygy).
     pub fn dream_cycle<F>(&mut self, mut progress_callback: F) -> Vec<DreamRecord>
     where
         F: FnMut(u8, &str),
     {
         // =========================================================================
-        // PHASE 1 (10%) : Horizon des Événements & Dilatation Relativiste du Temps
+        // PHASE 1 (10%) : Event Horizon & Relativistic Time Dilation
         // =========================================================================
         let season = self.swarm.cosmic_clock.season;
         let base_decay = season.decay_rate();
@@ -602,7 +602,7 @@ impl Kognitara {
 
         progress_callback(
             10,
-            "Horizon des Événements : Courbure de l'espace-temps & Dilatation relativiste...",
+            "Event Horizon: Spacetime curvature & Relativistic dilation...",
         );
 
         for brain in self.swarm.brains.values_mut() {
@@ -615,31 +615,31 @@ impl Kognitara {
 
             for (id, concept) in brain.tree.concepts.iter_mut() {
                 let deg = degrees.get(id).copied().unwrap_or(0);
-                // Près des Soleils supermassifs (Family, Water, Sovereignty), le temps ralentit (dilation faible) :
-                // leur énergie d'activation résiste à l'oubli. En périphérie, les comètes refroidissent vite.
+                // Near supermassive Suns (Family, Water, Sovereignty), time slows down (weak dilation):
+                // their activation energy resists forgetting. In the periphery, comets cool quickly.
                 let dilation = concept.relativistic_time_dilation(deg);
                 let relativistic_decay = (base_decay * dilation).clamp(0.02, 0.45);
                 concept.decay_activation(relativistic_decay);
 
-                // Thermodynamique saisonnière de Musashi appliquée à la plasticité synaptique
+                // Musashi's seasonal thermodynamics applied to synaptic plasticity
                 let target_plasticity = (concept.plasticity * season_plasticity).clamp(0.12, 0.98);
                 concept.plasticity = concept.plasticity * 0.85 + target_plasticity * 0.15;
             }
         }
 
         // =========================================================================
-        // PHASE 2 (25%) : Marée Gravitationnelle des Soleils Supermassifs
+        // PHASE 2 (25%) : Gravitational Tide of Supermassive Suns
         // =========================================================================
         progress_callback(
             25,
-            "Marée Gravitationnelle : Attraction des Soleils supermassifs sur l'Océan...",
+            "Gravitational Tide: Attraction of supermassive Suns on the Ocean...",
         );
 
         for brain in self.swarm.brains.values_mut() {
             if brain.phase == CircadianPhase::DeepDream
                 || brain.phase == CircadianPhase::DrowsinessRamp
             {
-                // On identifie l'étoile la plus massive (Soleil central) du graphe de ce cerveau
+                // We identify the most massive star (central Sun) in this brain's graph
                 let heaviest_sun = brain
                     .tree
                     .concepts
@@ -653,7 +653,7 @@ impl Kognitara {
                     })
                     .cloned();
 
-                // La gravité du Soleil central soulève une onde de marée dans tout le graphe
+                // The gravity of the central Sun raises a tidal wave throughout the graph
                 if let Some(sun_id) = heaviest_sun {
                     brain.tree.spread_activation(&sun_id, 0.92, 3);
                 }
@@ -661,15 +661,15 @@ impl Kognitara {
         }
 
         // =========================================================================
-        // PHASE 3 (45%) : Battement des Pulsars Premiers & Nucléosynthèse Stellaire
+        // PHASE 3 (45%) : Prime Pulsar Beating & Stellar Nucleosynthesis
         // =========================================================================
         progress_callback(
             45,
-            "Nucléosynthèse Stellaire : Polyrhythmie des 8 Pulsars Premiers [2..19]...",
+            "Stellar Nucleosynthesis: Polyrhythm of the 8 Prime Pulsars [2..19]...",
         );
 
         let mut cosmic_insights = Vec::new();
-        // On fait battre 3 Souffles Cosmiques pendant la plongée astrale
+        // We beat 3 Cosmic Breaths during the astral dive
         for _ in 0..3 {
             let step_discoveries = self.swarm.cosmic_breath_step();
             for d in step_discoveries {
@@ -680,16 +680,16 @@ impl Kognitara {
         }
 
         // =========================================================================
-        // PHASE 4 (65%) : Nébuleuse Onirique & Réconciliation Dialectique (60% Core)
+        // PHASE 4 (65%) : Oneiric Nebula & Dialectical Reconciliation (60% Core)
         // =========================================================================
         progress_callback(
             65,
-            "Nébuleuse Onirique : Fusion des paradoxes et tissage des Oracles...",
+            "Oneiric Nebula: Fusion of paradoxes and weaving of Oracles...",
         );
 
         let mut records = self.swarm.process_dreams();
 
-        // On convertit les découvertes astrophysiques des Pulsars en Oracles visibles au réveil
+        // We convert the astrophysical discoveries of the Pulsars into Oracles visible upon awakening
         if let Some(first_rec) = records.first_mut() {
             for (idx, insight) in cosmic_insights.iter().enumerate() {
                 first_rec.oracles.push(DreamOracle {
@@ -708,11 +708,11 @@ impl Kognitara {
         }
 
         // =========================================================================
-        // PHASE 5 (80%) : Rayonnement de Hawking & Sublimation Kpack des Poussières
+        // PHASE 5 (80%) : Hawking Radiation & Kpack Sublimation of Dust
         // =========================================================================
         progress_callback(
             80,
-            "Rayonnement de Hawking : Compression Kpack des poussières stellaires...",
+            "Hawking Radiation: Kpack compression of stellar dust...",
         );
 
         let primary_count = self
@@ -722,7 +722,7 @@ impl Kognitara {
             .map(|b| b.tree.concepts.len())
             .unwrap_or(0);
 
-        // En Automne/Hiver de Musashi ou si la galaxie dépasse 40 astres, on fossilise les poussières froides
+        // In Musashi's Autumn/Winter or if the galaxy exceeds 40 stars, we fossilize the cold dust
         if matches!(
             self.swarm.cosmic_clock.season,
             MusashiSeason::AutumnWater | MusashiSeason::WinterEarthVoid
@@ -739,7 +739,7 @@ impl Kognitara {
                     ),
                     dream_id: first_rec.dream_id.clone(),
                     revelation: alloc::format!(
-                        "[Rayonnement de Hawking] {} comètes de faible masse ont été fossilisées dans Kpack pour densifier le cœur stellaire.",
+                        "[Hawking Radiation] {} low-mass comets were fossilized in Kpack to densify the stellar core.",
                         fossilized.len()
                     ),
                     bridged_concepts: (ConceptId::from("seed"), ConceptId::from("humility")),
@@ -750,19 +750,19 @@ impl Kognitara {
         }
 
         // =========================================================================
-        // PHASE 6 (92%) : Ondes Gravitationnelles, Syzygie & Rotation du Cube Hamon
+        // PHASE 6 (92%) : Gravitational Waves, Syzygy & Hamon Cube Rotation
         // =========================================================================
         progress_callback(
             92,
-            "Ondes Gravitationnelles : Synchronisation 3D du Cube Hamon & Rotation orbitale...",
+            "Gravitational Waves: 3D Synchronization of the Hamon Cube & Orbital rotation...",
         );
 
         self.swarm.synchronize_knowledge();
         self.swarm.rotate_circadian_cohorts();
 
-        // Si le cosmos est en alignement d'Éclipse / Syzygie, le Conseil des Anciens siège dans la nuit
+        // If the cosmos is in Eclipse / Syzygy alignment, the Council of Elders sits in the night
         if self.swarm.cosmic_clock.is_eclipse_alignment()
-            && let Ok(delib) = self.convene_council("Syzygie Cosmique & Satori Nocturne")
+            && let Ok(delib) = self.convene_council("Cosmic Syzygy & Nocturnal Satori")
             && let Some(first_rec) = records.first_mut()
         {
             first_rec.oracles.push(DreamOracle {
@@ -772,7 +772,7 @@ impl Kognitara {
                 ),
                 dream_id: first_rec.dream_id.clone(),
                 revelation: alloc::format!(
-                    "[Éclipse Satori — Conseil des Anciens] Verdict {:?} (Harmonie {:.2})",
+                    "[Satori Eclipse — Council of Elders] Verdict {:?} (Harmony {:.2})",
                     delib.verdict,
                     delib.consensus_harmony
                 ),
@@ -783,7 +783,7 @@ impl Kognitara {
         }
 
         // =========================================================================
-        // PHASE 7 (100%) : Aube Cosmique (Uji — L'Être-Temps)
+        // PHASE 7 (100%) : Cosmic Dawn (Uji — Being-Time)
         // =========================================================================
         self.development.dream_cycles_completed += 1;
         self.development.evaluate_progression();
