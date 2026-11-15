@@ -23,6 +23,12 @@ use klm::{PULSAR_PRIMES, current_timestamp};
 fn clear() {
     execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0)).expect("");
 }
+fn limit_message(msg: &str) -> String {
+    match msg.char_indices().nth(150) {
+        Some((idx, _)) => format!("{}...", &msg[..idx]),
+        None => String::from(msg),
+    }
+}
 fn cli() -> Command {
     Command::new(env!("CARGO_PKG_NAME"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
@@ -624,13 +630,12 @@ fn interact(kognitara: &mut Kognitara) {
 }
 fn ok(message: &str) {
     let (cols, _) = size().expect("no terminal");
-
-    // Calcul du padding basé sur les caractères visibles
-    let visible_len = message.chars().count() as u16;
-    let padding = cols.saturating_sub(visible_len).saturating_sub(15) as usize;
-
+    let msg = limit_message(message);
+    let padding = cols
+        .saturating_sub(msg.chars().count() as u16)
+        .saturating_sub(15) as usize;
     let star = " * ".green().bold();
-    let msg = message.white().bold();
+    let msg = msg.white().bold();
     let cl = "[ ".cyan().bold();
     let ok_str = "success".green().bold();
     let cr = " ]".cyan().bold();
@@ -641,13 +646,15 @@ fn ok(message: &str) {
 
 fn ko(message: &str) {
     let (cols, _) = size().expect("no terminal");
-    let visible_len = message.chars().count() as u16;
-    let padding = cols.saturating_sub(visible_len).saturating_sub(15) as usize;
+    let msg = limit_message(message);
+    let padding = cols
+        .saturating_sub(msg.chars().count() as u16)
+        .saturating_sub(15) as usize;
 
     eprintln!(
         "{} {}{}{}{}{}",
         " !".red().bold(),
-        message.white().bold(),
+        msg.white().bold(),
         " ".repeat(padding),
         "[ ".white().bold(),
         "failure".red().bold(),
