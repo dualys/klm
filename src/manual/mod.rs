@@ -52,6 +52,9 @@ pub struct LivingManualEntry {
     /// Related exploratory records; these do not verify the concept or its relations.
     #[serde(default)]
     pub related_hypotheses: Vec<Hypothesis>,
+    /// Possible equivalences in this brain, not verified identities.
+    #[serde(default)]
+    pub possible_equivalences: Vec<String>,
 }
 
 /// Generator for Kōgnitara's Living Manual (`kog` man-of-life pages) and the Resilient Offline Web Ark.
@@ -237,6 +240,18 @@ impl LivingManual {
 
         let confidence_percent = (concept.confidence.clamp(0.0, 1.0) * 100.0) as u8;
         let see_also: Vec<String> = see_also_set.into_iter().collect();
+        let possible_equivalences = tree
+            .possible_equivalences
+            .iter()
+            .filter(|link| link.is_active() && (&link.left == id || &link.right == id))
+            .map(|link| {
+                let mut text = link.display();
+                if !link.endpoints_match(tree) {
+                    text.push_str(" (a concept is absent or has changed; review this proposal)");
+                }
+                text
+            })
+            .collect();
 
         LivingManualEntry {
             concept_id: concept.id.clone(),
@@ -255,6 +270,7 @@ impl LivingManual {
             socratic_inquiry,
             see_also,
             related_hypotheses: Vec::new(),
+            possible_equivalences,
         }
     }
 
@@ -347,6 +363,14 @@ impl LivingManual {
         }
         out.push('\n');
 
+        if !entry.possible_equivalences.is_empty() {
+            out.push_str("POSSIBLE EQUIVALENCES (unverified; concepts remain separate)\n");
+            for link in &entry.possible_equivalences {
+                out.push_str(&format!("    {}\n", link));
+            }
+            out.push('\n');
+        }
+
         out.push_str("RELATIONS IN THE TREE OF KNOWLEDGE\n");
         if !entry.grows_from.is_empty() {
             out.push_str(&format!(
@@ -431,6 +455,13 @@ impl LivingManual {
                 hypothesis.display_current().replace('\n', "  \n")
             ));
         }
+        if !entry.possible_equivalences.is_empty() {
+            out.push_str("## Possible equivalences\nUnverified; the concepts remain separate.\n\n");
+            for link in &entry.possible_equivalences {
+                out.push_str(&format!("* {}\n", link));
+            }
+            out.push('\n');
+        }
 
         out.push_str("## Relations in the Tree of Knowledge\n");
         if !entry.grows_from.is_empty() {
@@ -502,14 +533,14 @@ impl LivingManual {
             .iter()
             .map(|hypothesis| {
                 let text = hypothesis.display_current();
-                let escaped = text
-                    .replace('&', "&amp;")
-                    .replace('<', "&lt;")
-                    .replace('>', "&gt;")
-                    .replace('"', "&quot;")
-                    .replace('\'', "&#39;");
+                let escaped = Self::escape_html(&text);
                 format!("<li><pre>{escaped}</pre></li>")
             })
+            .collect();
+        let equivalences_html: Vec<String> = entry
+            .possible_equivalences
+            .iter()
+            .map(|link| format!("<li>{}</li>", Self::escape_html(link)))
             .collect();
 
         format!(
@@ -532,6 +563,11 @@ impl LivingManual {
   <div class=\"card\">\n\
     <h2>ESSENCE</h2>\n\
     <p>{essence}</p>\n\
+  </div>\n\
+  <div class=\"card\">\n\
+    <h2>POSSIBLE EQUIVALENCES</h2>\n\
+    <p>Unverified; the concepts remain separate.</p>\n\
+    <ul>{equivalences}</ul>\n\
   </div>\n\
   <div class=\"card\">\n\
     <h2>EVIDENCE STATUS</h2>\n\
@@ -564,6 +600,7 @@ impl LivingManual {
             harmonizes = entry.harmonizes.join(", "),
             notes = notes_html.join(""),
             evidence = evidence_html.join(""),
+            equivalences = equivalences_html.join(""),
             see_also = see_also_links.join(" | "),
         )
     }
@@ -601,6 +638,14 @@ impl LivingManual {
             count = tree.concepts.len(),
             items = items.join("\n    ")
         )
+    }
+
+    fn escape_html(text: &str) -> String {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&#39;")
     }
 
     fn push_unique(list: &mut Vec<String>, item: String) {

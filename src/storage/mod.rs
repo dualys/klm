@@ -6,6 +6,8 @@ pub mod fossil;
 pub mod jinshu_ocean;
 #[doc = "This module provides functionality related to snapshot operations."]
 pub mod kpack_engine;
+#[cfg(all(feature = "std", unix))]
+pub mod registry;
 #[doc = "This module provides functionality related to snapshot operations."]
 pub mod snapshot;
 

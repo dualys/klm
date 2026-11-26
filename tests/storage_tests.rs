@@ -71,6 +71,148 @@ fn test_cognitive_snapshot_full_and_delta_roundtrip() {
     assert_eq!(delta_state.working_memory.len(), 1);
 }
 
+#[cfg(all(feature = "std", unix))]
+mod registry_tests {
+    use klm::storage::KpackRecipe;
+    use klm::storage::registry::{compact_registry, create_tag, delete_tag, export_tag, read_tags};
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::io;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new() -> io::Result<Self> {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(io::Error::other)?
+                .as_nanos();
+            let path = std::env::temp_dir()
+                .join(format!("klm-registry-test-{}-{nonce}", std::process::id()));
+            fs::create_dir(&path)?;
+            Ok(Self(path))
+        }
+
+        fn path(&self, name: &str) -> PathBuf {
+            self.0.join(name)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn append_snapshot(path: &Path, state: &[u8]) -> io::Result<()> {
+        let recipe = KpackRecipe::encode(state);
+        let line = serde_json::to_string(&recipe).map_err(io::Error::other)?;
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        writeln!(file, "{line}")
+    }
+
+    fn read_states(path: &Path) -> io::Result<Vec<Vec<u8>>> {
+        fs::read_to_string(path)?
+            .lines()
+            .map(|line| {
+                let recipe: KpackRecipe = serde_json::from_str(line).map_err(io::Error::other)?;
+                recipe.decode().map_err(io::Error::other)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn compaction_keeps_latest_and_tagged_snapshots_and_migrates_legacy_tags() {
+        let dir = TestDir::new().unwrap();
+        let registry = dir.path("data");
+        let tags_path = dir.path("tags.json");
+
+        for state in [
+            b"one".as_slice(),
+            b"two".as_slice(),
+            b"three".as_slice(),
+            b"four".as_slice(),
+            b"latest".as_slice(),
+        ] {
+            append_snapshot(&registry, state).unwrap();
+        }
+        fs::write(&tags_path, r#"{"release":2,"checkpoint":4}"#).unwrap();
+        let original_size = fs::metadata(&registry).unwrap().len();
+
+        let report = compact_registry(&registry, &tags_path).unwrap();
+
+        assert_eq!(report.records_before, 5);
+        assert_eq!(report.records_after, 3);
+        assert!(report.bytes_after < original_size);
+        assert_eq!(
+            read_states(&registry).unwrap(),
+            vec![b"two".to_vec(), b"four".to_vec(), b"latest".to_vec()]
+        );
+
+        let tags: BTreeMap<String, String> =
+            serde_json::from_slice(&fs::read(&tags_path).unwrap()).unwrap();
+        assert_eq!(tags, read_tags(&registry, &tags_path).unwrap());
+        assert_eq!(tags.len(), 2);
+
+        let export = dir.path("release.kpack");
+        assert_eq!(
+            export_tag(&registry, &tags_path, "checkpoint", &export).unwrap(),
+            2
+        );
+        assert_eq!(
+            read_states(&export).unwrap(),
+            vec![b"two".to_vec(), b"four".to_vec()]
+        );
+    }
+
+    #[test]
+    fn creating_and_deleting_tags_uses_stable_snapshot_ids() {
+        let dir = TestDir::new().unwrap();
+        let registry = dir.path("data");
+        let tags_path = dir.path("tags.json");
+        append_snapshot(&registry, b"current state").unwrap();
+
+        let id = create_tag(&registry, &tags_path, "before-test").unwrap();
+        assert_eq!(id.len(), 64);
+        assert_eq!(
+            read_tags(&registry, &tags_path).unwrap().get("before-test"),
+            Some(&id)
+        );
+        assert!(delete_tag(&registry, &tags_path, "before-test").unwrap());
+        assert!(read_tags(&registry, &tags_path).unwrap().is_empty());
+        assert_eq!(
+            compact_registry(&registry, &tags_path)
+                .unwrap()
+                .records_after,
+            1
+        );
+    }
+
+    #[test]
+    fn compaction_refuses_malformed_registry_without_changing_files() {
+        let dir = TestDir::new().unwrap();
+        let registry = dir.path("data");
+        let tags_path = dir.path("tags.json");
+        append_snapshot(&registry, b"keep me").unwrap();
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new().append(true).open(&registry).unwrap();
+        writeln!(file, "not a recipe").unwrap();
+        fs::write(&tags_path, r#"{"release":1}"#).unwrap();
+        let original_registry = fs::read(&registry).unwrap();
+        let original_tags = fs::read(&tags_path).unwrap();
+
+        assert!(compact_registry(&registry, &tags_path).is_err());
+        assert_eq!(fs::read(&registry).unwrap(), original_registry);
+        assert_eq!(fs::read(&tags_path).unwrap(), original_tags);
+    }
+}
+
 #[test]
 fn test_jinshu_cognitive_ocean_and_cubefs_vault() {
     let tree = KnowledgeTree::with_innate_seed();

@@ -182,14 +182,20 @@ Inside the interactive shell (`klm`), any input that is not a reserved command i
 | `council [topic]`       | Convene the 5 Elders to deliberate Socratically on a topic   |
 | `man <concept>`         | Render the dynamically woven **Living Manual** Markdown page for a concept |
 | `status`                | Display Cosmic Clock (`Souffle`, `Marée`, `MusashiSeason`) and 8-node Pulsar status |
-| `tag <name>`            | Bookmark the current iteration of the append-only registry under `<name>` |
-| `tags`                  | List all saved historical tags and their iteration numbers   |
+| `tag <name>`            | Bookmark the current snapshot under `<name>`                 |
+| `tags`                  | List saved tags and their stable snapshot IDs                |
+| `tag delete <name>`     | Remove a tag; its snapshot can be reclaimed by `compact`     |
+| `compact`               | Keep the latest snapshot and every tagged snapshot           |
 | `pack` / `unpack`       | Manually compress or restore state from `/mnt/kognitara/data` |
 | `clear` / `quit`        | Clear terminal screen or save and exit the Sanctuary shell   |
 | `hypothesis <statement>` | Record an exploratory, unverified statement |
 | `hypotheses`            | List hypotheses, sources and corrections |
 | `evidence <id> \| reports/supports/contradicts \| <source> \| <note>` | Record a source for the current version |
 | `correct-hypothesis <id> \| <statement> \| <reason>` | Correct a statement while preserving its prior version and sources |
+| `equiv-list <brain>` | List possible equivalences and their status history in brain 0–7 |
+| `equiv-suggest <brain> \| <concept ID>` | Suggest unverified pairs with the same label, ignoring case and whitespace |
+| `equiv-propose <brain> \| <ID> \| <ID> \| <source> \| <reason>` | Record a possible equivalence with its origin and reason |
+| `equiv-withdraw <brain> \| <proposal ID> \| <reason>` / `equiv-reopen ...` | Withdraw or reopen a proposal without erasing its history |
 
 Hypotheses remain unverified even when a source supports them. Corrections retain
 the evidence associated with each earlier revision. Accepted browsing traces
@@ -202,6 +208,20 @@ Associations are heuristic; unrelated or older records may not appear there.
 Use `hypotheses` to inspect all revisions and sources. Library callers of
 `harvest_browsing_trace` must handle its `Result`.
 
+Possible equivalences are scoped to one brain and remain outside graph reasoning:
+they do not merge concepts, combine sources, or establish that two meanings are
+the same. Same-label suggestions are only a weak local hint; homonyms can have
+different meanings, and translations with different labels are not detected.
+Withdrawn pairs are not automatically suggested again. The manual displays active
+proposals for its chosen brain; `equiv-list` also shows withdrawals and reopenings.
+Use exact concept IDs (shown by `man <concept>`), not partial matches. For example:
+
+~~~text
+equiv-propose 0 | tree | arbre | my note | Possible translation to investigate
+equiv-list 0
+equiv-withdraw 0 | 1 | More context is needed
+~~~
+
 You can also invoke subcommands directly from your OS shell:
 
 ~~~bash
@@ -209,7 +229,18 @@ klm status
 klm man family
 klm council "La Nature de l'Eau"
 klm tag export v1.0 ./backup_v1.kpack
+klm tag delete v1.0
+klm compact
 ~~~
+
+Compaction is explicit and removes only untagged snapshots, retaining the latest
+state and every snapshot referenced by a tag. Tags use stable snapshot IDs;
+existing line-number tags are converted when tags are updated or compaction runs.
+The `klm compact` subcommand operates directly on the saved registry before
+startup research imports and catch-up; compaction itself does not create a snapshot.
+Deleting a tag does not immediately rewrite the registry; run `compact` to reclaim that
+snapshot if no other tag references it. A tag export contains the retained
+snapshots up to and including that tag, not discarded untagged history.
 
 ### Background research
 

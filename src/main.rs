@@ -7,12 +7,10 @@ use crossterm::terminal::{Clear, ClearType, size};
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::{Confirm, Editor, Select, Text};
 use klm::family::MemberId;
-use klm::{EvidenceRelation, Kognitara};
-use std::collections::BTreeMap;
+use klm::{ConceptId, EvidenceRelation, KnowledgeTree, Kognitara, NodeCoord};
 use std::env;
 use std::fs;
-use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Write, stdout};
+use std::io::{Write, stdout};
 use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
@@ -99,7 +97,9 @@ fn cli() -> Command {
                 .subcommands(&[
                     Command::new("list").about("List available tags"),
                     Command::new("create").about("Create a new tag"),
-                    Command::new("delete").about("Delete a tag"),
+                    Command::new("delete")
+                        .about("Delete a tag")
+                        .arg(Arg::new("tag").required(true).help("Tag name to delete")),
                     Command::new("export")
                         .about("export a tag")
                         .arg(
@@ -115,6 +115,10 @@ fn cli() -> Command {
                 ]),
         )
         .subcommand(
+            Command::new("compact")
+                .about("Keep the latest and tagged snapshots, removing untagged history"),
+        )
+        .subcommand(
             Command::new("council")
                 .about("Convene the Council of Elders")
                 .arg(clap::Arg::new("topic").default_value("Sanctuary Wisdom & Socratic Path")),
@@ -127,151 +131,83 @@ fn export_state(tag_name: &str, dest_path: &str) {
         return;
     }
 
-    // 1. Load the tags dictionary to find the target line
-    let tags_content = match fs::read_to_string(TAGS_FILE) {
-        Ok(c) => c,
-        Err(_) => {
-            ko("Cannot read the tags file. No tags exist?");
-            return;
-        }
-    };
-
-    let tags: BTreeMap<String, usize> = match serde_json::from_str(&tags_content) {
-        Ok(t) => t,
-        Err(_) => {
-            ko("The tags file is corrupted or invalid.");
-            return;
-        }
-    };
-
-    let target_lines = match tags.get(tag_name) {
-        Some(&lines) => lines,
-        None => {
-            ko(&format!("The tag '{}' does not exist.", tag_name));
-            return;
-        }
-    };
-
-    ok(&format!(
-        "[*] Preparing to export tag '{}' ({} iterations)...",
-        tag_name, target_lines
-    ));
-
-    // 2. Open the source registry for reading and the destination for writing
-    let src_file = match File::open(DATA) {
-        Ok(f) => f,
-        Err(e) => {
-            ko(&format!(
-                "Cannot open the source registry ({}) : {}",
-                DATA, e
-            ));
-            return;
-        }
-    };
-
-    let dest_file = match File::create(dest_path) {
-        Ok(f) => f,
-        Err(e) => {
-            ko(&format!(
-                "Cannot create the export file '{}' : {}",
-                dest_path, e
-            ));
-            return;
-        }
-    };
-
-    let reader = BufReader::new(src_file);
-    let mut writer = BufWriter::new(dest_file);
-
-    // 3. Copy exactly target_lines lines (the Kpack recipes)
-    let mut copied_count = 0;
-    for line in reader.lines() {
-        if copied_count >= target_lines {
-            break; // Stop the copy exactly at the tag
-        }
-
-        if let Ok(l) = line {
-            if let Err(e) = writeln!(writer, "{}", l) {
-                ko(&format!("Error writing to the export: {}", e));
-                return;
-            }
-            copied_count += 1;
-        }
+    match klm::storage::registry::export_tag(
+        Path::new(DATA),
+        Path::new(TAGS_FILE),
+        tag_name,
+        Path::new(dest_path),
+    ) {
+        Ok(records) => ok(&format!(
+            "Exported {records} retained snapshot(s) through tag '{tag_name}' to '{dest_path}'."
+        )),
+        Err(error) => ko(&format!("Cannot export tag '{tag_name}': {error}")),
     }
-
-    // Force flush to disk
-    if let Err(e) = writer.flush() {
-        ko(&format!("Error flushing the export: {}", e));
-        return;
-    }
-
-    ok(&format!(
-        "Bifurcation successful! Kōgnitara's timeline up to '{}' has been exported to '{}'.",
-        tag_name, dest_path
-    ));
 }
 
-fn tag_state(tag_name: &str) {
+fn tag_state(kognitara: &Kognitara, tag_name: &str) {
+    let tag_name = tag_name.trim();
     if tag_name.is_empty() {
         ko("You must provide a tag name (e.g., 'tag v1.0').");
         return;
     }
 
-    // 1. Count the number of lines (iterations) in the append-only registry
-    let lines_count = if let Ok(file) = std::fs::File::open(DATA) {
-        use std::io::{BufRead, BufReader};
-        BufReader::new(file).lines().count()
-    } else {
-        ko("Failed to read the main data registry.");
-        return;
-    };
-
-    if lines_count == 0 {
-        ko("The registry is empty, nothing to tag.");
+    if let Err(error) = persist_import(kognitara, Path::new(DATA)) {
+        ko(&format!("Cannot save state before tagging: {error}"));
         return;
     }
-
-    // 2. Load existing tags (if any)
-    let mut tags: BTreeMap<String, usize> = if let Ok(content) = fs::read_to_string(TAGS_FILE) {
-        serde_json::from_str(&content).unwrap_or_else(|_| BTreeMap::new())
-    } else {
-        BTreeMap::new()
-    };
-
-    // 3. Add the new tag and save
-    tags.insert(tag_name.to_string(), lines_count);
-
-    match serde_json::to_string_pretty(&tags) {
-        Ok(json) => {
-            if let Err(e) = fs::write(TAGS_FILE, json) {
-                ko(&format!("Failed to write tags file: {}", e));
-            } else {
-                ok(&format!(
-                    "Tag '{}' created at iteration {}!",
-                    tag_name, lines_count
-                ));
-            }
-        }
-        Err(e) => ko(&format!("Failed to serialize tags: {}", e)),
+    match klm::storage::registry::create_tag(Path::new(DATA), Path::new(TAGS_FILE), tag_name) {
+        Ok(id) => ok(&format!(
+            "Tag '{}' now points to snapshot {}.",
+            tag_name, id
+        )),
+        Err(error) => ko(&format!("Cannot create tag '{tag_name}': {error}")),
     }
 }
 
 fn list_tags() {
-    if let Ok(content) = fs::read_to_string(TAGS_FILE) {
-        if let Ok(tags) = serde_json::from_str::<BTreeMap<String, usize>>(&content) {
-            if tags.is_empty() {
-                ko("No tags found.");
-                return;
+    match klm::storage::registry::read_tags(Path::new(DATA), Path::new(TAGS_FILE)) {
+        Ok(tags) if tags.is_empty() => ko("No tags found."),
+        Ok(tags) => {
+            ok("Here are the saved snapshot tags:");
+            for (name, id) in tags {
+                println!("  * [{name}] -> {id}");
             }
-            ok("Here are the saved historical tags:");
-            for (name, iteration) in tags {
-                println!("  * [{}] -> iteration {}", name, iteration);
-            }
-        } else {
-            ko("Tags file is corrupted.");
         }
+        Err(error) => ko(&format!("Cannot read tags: {error}")),
+    }
+}
+
+fn delete_tag(tag_name: &str) {
+    match klm::storage::registry::delete_tag(Path::new(DATA), Path::new(TAGS_FILE), tag_name.trim())
+    {
+        Ok(true) => ok(&format!(
+            "Tag '{tag_name}' deleted. Run 'compact' to reclaim unreferenced snapshots."
+        )),
+        Ok(false) => ko(&format!("Tag '{tag_name}' does not exist.")),
+        Err(error) => ko(&format!("Cannot delete tag '{tag_name}': {error}")),
+    }
+}
+
+fn compact_registry() -> std::io::Result<()> {
+    let report = klm::storage::registry::compact_registry(Path::new(DATA), Path::new(TAGS_FILE))?;
+    let freed = report.bytes_before.saturating_sub(report.bytes_after);
+    println!(
+        "Compacted {} snapshots to {}; kept {} tag(s), reclaimed {freed} bytes.",
+        report.records_before, report.records_after, report.tags_kept
+    );
+    Ok(())
+}
+
+fn tag_delete_argument(input: &str) -> Option<&str> {
+    let (command, rest) = input.trim_start().split_once(char::is_whitespace)?;
+    if !command.eq_ignore_ascii_case("tag") {
+        return None;
+    }
+    let (action, name) = rest.trim_start().split_once(char::is_whitespace)?;
+    if action.eq_ignore_ascii_case("delete") {
+        Some(name.trim())
     } else {
-        ko("No tags have been created yet.");
+        None
     }
 }
 
@@ -631,6 +567,104 @@ fn hypothesis_command(kognitara: &mut Kognitara, input: &str) -> Option<Result<b
     }
 }
 
+fn equivalence_tree<'a>(
+    mind: &'a mut Kognitara,
+    brain: &str,
+) -> Result<&'a mut KnowledgeTree, String> {
+    let node = brain
+        .trim()
+        .parse::<u8>()
+        .map_err(|_| "Brain must be a number from 0 to 7.")?;
+    if node > 7 {
+        return Err("Brain must be a number from 0 to 7.".into());
+    }
+    mind.swarm
+        .brains
+        .get_mut(&NodeCoord::new(node))
+        .map(|brain| &mut brain.tree)
+        .ok_or_else(|| format!("Brain {node} not found."))
+}
+
+fn equivalence_command(mind: &mut Kognitara, input: &str) -> Option<Result<bool, String>> {
+    let (command, args) = input.split_once(' ').unwrap_or((input, ""));
+    match command {
+        "equiv-list" => Some((|| {
+            let tree = equivalence_tree(mind, args)?;
+            if tree.possible_equivalences.is_empty() {
+                println!("No possible equivalences in this brain.");
+            }
+            for link in &tree.possible_equivalences {
+                println!("{}", link.display());
+                if !link.endpoints_match(tree) {
+                    println!("  A concept is absent or has changed; review this proposal.");
+                }
+                for change in &link.changes {
+                    println!(
+                        "  {}: {} | timestamp {}",
+                        if change.active {
+                            "reopened"
+                        } else {
+                            "withdrawn"
+                        },
+                        change.reason,
+                        change.changed_at
+                    );
+                }
+            }
+            Ok(false)
+        })()),
+        "equiv-suggest" => Some((|| {
+            let (brain, concept) = args
+                .split_once('|')
+                .ok_or("Usage: equiv-suggest <brain> | <concept ID>")?;
+            let tree = equivalence_tree(mind, brain)?;
+            let count = tree
+                .suggest_equivalences(&ConceptId::from(concept.trim()))
+                .map_err(|e| e.to_string())?;
+            println!("{count} unverified same-label proposal(s); no concepts were merged.");
+            Ok(count > 0)
+        })()),
+        "equiv-propose" => Some((|| {
+            let parts: Vec<&str> = args.splitn(5, '|').map(str::trim).collect();
+            if parts.len() != 5 {
+                return Err(
+                    "Usage: equiv-propose <brain> | <ID> | <ID> | <source> | <reason>".into(),
+                );
+            }
+            let tree = equivalence_tree(mind, parts[0])?;
+            let id = tree
+                .propose_equivalence(
+                    &ConceptId::from(parts[1]),
+                    &ConceptId::from(parts[2]),
+                    parts[3],
+                    parts[4],
+                )
+                .map_err(|e| e.to_string())?;
+            println!(
+                "Possible equivalence #{id} recorded as unverified; concepts remain separate."
+            );
+            Ok(true)
+        })()),
+        "equiv-withdraw" | "equiv-reopen" => Some((|| {
+            let parts: Vec<&str> = args.splitn(3, '|').map(str::trim).collect();
+            if parts.len() != 3 {
+                return Err(format!(
+                    "Usage: {command} <brain> | <proposal ID> | <reason>"
+                ));
+            }
+            let id = parts[1]
+                .parse::<u64>()
+                .map_err(|_| "Invalid proposal ID.")?;
+            let tree = equivalence_tree(mind, parts[0])?;
+            tree.set_equivalence_active(id, command == "equiv-reopen", parts[2])
+                .map_err(|e| e.to_string())?;
+            println!("Proposal status updated; history retained.");
+            Ok(true)
+        })()),
+        _ => None,
+    }
+}
+
 fn interact(kognitara: &mut Kognitara) {
     loop {
         let todo = Text::new("").prompt().expect("");
@@ -639,7 +673,9 @@ fn interact(kognitara: &mut Kognitara) {
             continue;
         }
 
-        if let Some(result) = hypothesis_command(kognitara, trimmed) {
+        if let Some(result) = hypothesis_command(kognitara, trimmed)
+            .or_else(|| equivalence_command(kognitara, trimmed))
+        {
             match result {
                 Ok(true) => pack(kognitara, DATA),
                 Ok(false) => {}
@@ -668,10 +704,21 @@ fn interact(kognitara: &mut Kognitara) {
                 ok(&msg);
             }
             pack(kognitara, DATA);
+        } else if trimmed.eq_ignore_ascii_case("compact") {
+            if let Err(error) = compact_registry() {
+                ko(&format!("Registry compaction failed: {error}"));
+            }
+        } else if let Some(tag_name) = tag_delete_argument(trimmed) {
+            if tag_name.is_empty() {
+                ko("Usage: tag delete <name>");
+            } else {
+                delete_tag(tag_name);
+            }
         } else if trimmed.eq_ignore_ascii_case("tags") {
             list_tags();
         } else if trimmed.eq_ignore_ascii_case("tag") {
             tag_state(
+                kognitara,
                 Text::new("Tag version:")
                     .prompt()
                     .expect("version is required")
@@ -710,7 +757,7 @@ fn interact(kognitara: &mut Kognitara) {
             convene_council(kognitara, topic);
         } else if trimmed.to_lowercase().starts_with("tag ") {
             let tag_name = trimmed[4..].trim();
-            tag_state(tag_name);
+            tag_state(kognitara, tag_name);
         } else if trimmed.eq_ignore_ascii_case("tags") {
             list_tags();
         } else if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
@@ -938,7 +985,14 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
                 list_tags();
             }
             Some(("create", _)) => {
-                tag_state(Text::new("Tag version:").prompt().expect("").as_str());
+                tag_state(
+                    kognitara,
+                    Text::new("Tag version:").prompt().expect("").as_str(),
+                );
+            }
+            Some(("delete", sub)) => {
+                let tag = sub.get_one::<String>("tag").expect("tag required");
+                delete_tag(tag);
             }
             Some(("export", sub)) => {
                 let tag = sub.get_one::<String>("tag").expect("tag it's required");
@@ -948,9 +1002,14 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
                 export_state(tag, destination);
             }
             _ => {
-                ko("tags commands are: list or create");
+                ko("tag commands are: list, create, delete, or export");
             }
         },
+        Some(("compact", _)) => {
+            if let Err(error) = compact_registry() {
+                ko(&format!("Registry compaction failed: {error}"));
+            }
+        }
         Some(("pack", _)) => {
             pack(kognitara, DATA);
         }
@@ -1036,6 +1095,13 @@ fn main() {
         eprintln!("KLM memory is already in use: {error}");
         std::process::exit(1);
     }
+    if matches.subcommand_name() == Some("compact") {
+        if let Err(error) = compact_registry() {
+            eprintln!("Registry compaction failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let mut kognitara = Kognitara::new(
         env::var("KOGNITARA_SANCTUARY_NAME")
             .unwrap_or_else(|_| "Sanctuary of House Ki".to_string()),
@@ -1120,5 +1186,47 @@ mod tests {
         );
         assert_eq!(mind.hypotheses.hypotheses[0].evidence[0].revision, 0);
         assert_eq!(mind.hypotheses.hypotheses[0].revision(), 1);
+    }
+
+    #[test]
+    fn equivalence_commands_require_exact_ids_and_preserve_history() {
+        let mut mind = Kognitara::new("Test");
+        assert_eq!(
+            equivalence_command(
+                &mut mind,
+                "equiv-propose 0 | tree | forest | local note | check meanings"
+            ),
+            Some(Ok(true))
+        );
+        assert!(
+            equivalence_command(&mut mind, "equiv-propose 8 | tree | forest | s | r")
+                .unwrap()
+                .is_err()
+        );
+        assert!(
+            equivalence_command(&mut mind, "equiv-propose 0 | tree | missing | s | r")
+                .unwrap()
+                .is_err()
+        );
+        assert_eq!(
+            equivalence_command(&mut mind, "equiv-withdraw 0 | 1 | different meanings"),
+            Some(Ok(true))
+        );
+        assert_eq!(
+            equivalence_command(&mut mind, "equiv-list 0"),
+            Some(Ok(false))
+        );
+        assert_eq!(
+            equivalence_command(&mut mind, "equiv-reopen 0 | 1 | reconsider"),
+            Some(Ok(true))
+        );
+        assert_eq!(
+            mind.swarm.brains[&NodeCoord::new(0)]
+                .tree
+                .possible_equivalences[0]
+                .changes
+                .len(),
+            2
+        );
     }
 }

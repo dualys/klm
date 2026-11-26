@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::compute::{ComputeBackend, CpuBackend};
 use crate::error::{KlmError, Result};
 use crate::ontology::concept::{Concept, ConceptId, ConceptOrigin, compute_text_embedding};
+use crate::ontology::equivalence::PossibleEquivalence;
 use crate::ontology::relation::{RelationEdge, RelationType};
 
 /// The Living Knowledge Tree (Arbre de la Connaissance).
@@ -19,6 +20,9 @@ pub struct KnowledgeTree {
     pub concepts: BTreeMap<ConceptId, Concept>,
     /// Directed weighted relational connections between concepts
     pub edges: Vec<RelationEdge>,
+    /// Unverified suggestions, kept outside the graph's reasoning edges.
+    #[serde(default)]
+    pub possible_equivalences: Vec<PossibleEquivalence>,
 }
 
 impl Default for KnowledgeTree {
@@ -33,6 +37,7 @@ impl KnowledgeTree {
         Self {
             concepts: BTreeMap::new(),
             edges: Vec::new(),
+            possible_equivalences: Vec::new(),
         }
     }
     /// Retourne le degré synaptique total (liens entrants + sortants) d'un concept.

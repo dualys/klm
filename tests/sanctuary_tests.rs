@@ -201,6 +201,119 @@ fn responses_and_manuals_show_related_current_sources_without_verifying_them() {
 }
 
 #[test]
+fn possible_equivalences_are_scoped_reversible_and_never_merge_concepts() {
+    use klm::{Concept, ConceptId, ConceptOrigin, NodeCoord};
+
+    let mut mind = Kognitara::new("Test");
+    let tree = &mut mind.swarm.brains.get_mut(&NodeCoord::new(0)).unwrap().tree;
+    for (id, label) in [
+        ("tree_a", "Test Linden"),
+        ("tree_b", " test   linden "),
+        ("water_a", "Water"),
+    ] {
+        tree.add_concept(Concept::new(
+            ConceptId::from(id),
+            label,
+            "description",
+            ConceptOrigin::EmpiricalTrial,
+        ));
+    }
+    let before_edges = tree.edges.len();
+    let before_concepts = tree.concepts.len();
+    assert_eq!(
+        tree.suggest_equivalences(&ConceptId::from("tree_a"))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        tree.suggest_equivalences(&ConceptId::from("tree_a"))
+            .unwrap(),
+        0
+    );
+    assert!(
+        tree.propose_equivalence(&"tree_b".into(), &"tree_a".into(), "source", "reason")
+            .is_err()
+    );
+    assert!(
+        tree.propose_equivalence(&"tree_a".into(), &"missing".into(), "source", "reason")
+            .is_err()
+    );
+    assert!(
+        tree.propose_equivalence(&"tree_a".into(), &"tree_a".into(), "source", "reason")
+            .is_err()
+    );
+    assert_eq!(tree.edges.len(), before_edges);
+    assert_eq!(tree.concepts.len(), before_concepts);
+
+    let page = mind.render_markdown_page("tree_a").unwrap();
+    assert!(page.contains("Possible equivalences"));
+    assert!(page.contains("tree_b"));
+    assert!(page.contains("Local concept labels"));
+    assert!(page.contains("Unverified"));
+    assert!(
+        !mind
+            .render_markdown_page("water_a")
+            .unwrap()
+            .contains("tree_b")
+    );
+    assert!(
+        mind.swarm.brains[&NodeCoord::new(1)]
+            .tree
+            .possible_equivalences
+            .is_empty()
+    );
+
+    let tree = &mut mind.swarm.brains.get_mut(&NodeCoord::new(0)).unwrap().tree;
+    tree.set_equivalence_active(1, false, "Different senses")
+        .unwrap();
+    assert_eq!(tree.suggest_equivalences(&"tree_a".into()).unwrap(), 0);
+    assert!(tree.set_equivalence_active(1, false, "Again").is_err());
+    assert!(
+        !mind
+            .render_markdown_page("tree_a")
+            .unwrap()
+            .contains("tree_b")
+    );
+
+    let mut restored: Kognitara =
+        serde_json::from_slice(&serde_json::to_vec(&mind).unwrap()).unwrap();
+    let tree = &mut restored
+        .swarm
+        .brains
+        .get_mut(&NodeCoord::new(0))
+        .unwrap()
+        .tree;
+    assert!(!tree.possible_equivalences[0].is_active());
+    assert_eq!(
+        tree.possible_equivalences[0].changes[0].reason,
+        "Different senses"
+    );
+    let mut old_tree = serde_json::to_value(&*tree).unwrap();
+    old_tree
+        .as_object_mut()
+        .unwrap()
+        .remove("possible_equivalences");
+    let migrated: klm::KnowledgeTree = serde_json::from_value(old_tree).unwrap();
+    assert!(migrated.possible_equivalences.is_empty());
+    let removed = tree.concepts.remove(&"tree_b".into()).unwrap();
+    assert!(
+        tree.set_equivalence_active(1, true, "Review again")
+            .is_err()
+    );
+    tree.add_concept(removed);
+    tree.set_equivalence_active(1, true, "Review again")
+        .unwrap();
+    assert_eq!(tree.possible_equivalences[0].changes.len(), 2);
+    for page in [
+        restored.render_man_page("tree_a").unwrap(),
+        restored.render_html_ark_page("tree_a").unwrap(),
+    ] {
+        assert!(page.contains("tree_b"));
+        assert!(page.contains("unverified") || page.contains("Unverified"));
+    }
+}
+
+#[test]
 fn confidence_growth_does_not_resolve_questions() {
     let mut mind = Kognitara::new("Test");
     let member = MemberId::from("ki");
