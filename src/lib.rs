@@ -26,6 +26,7 @@ pub mod ontology;
 pub mod storage;
 #[doc = "This module provides functionality related to swarm operations."]
 pub mod swarm;
+use alloc::collections::BTreeSet;
 use alloc::string::String;
 use alloc::vec::Vec;
 pub use clock::{CosmicClock, MusashiSeason, PULSAR_PRIMES, current_timestamp};
@@ -52,7 +53,8 @@ pub use harvest::{
 pub use manual::{LivingManual, LivingManualEntry};
 pub use mind::{
     CognitiveState, CuriosityEngine, DevelopmentalProfile, DevelopmentalStage, EmergentVoice,
-    EpisodicExperience, MistakeLesson, OpenQuestion, OrganicLearner, SOCRATIC_INTERIOR_VOW,
+    EpisodicExperience, Evidence, EvidenceRelation, Hypothesis, HypothesisCorrection,
+    HypothesisLedger, MistakeLesson, OpenQuestion, OrganicLearner, SOCRATIC_INTERIOR_VOW,
     SocraticEngine, SocraticReflection, SocraticStage,
 };
 pub use ontology::{
@@ -85,6 +87,12 @@ pub struct Kognitara {
     pub development: DevelopmentalProfile,
     /// Kpack fossil archive for gentle synaptic forgetting and Proustian Anamnesis recall
     pub fossil_archive: FossilArchive,
+    /// Exploratory claims and their sources, independent of confidence scores.
+    #[serde(default)]
+    pub hypotheses: HypothesisLedger,
+    /// Research journal entries already incorporated into this snapshot.
+    #[serde(default)]
+    pub imported_research: BTreeSet<String>,
 }
 
 impl Default for Kognitara {
@@ -103,6 +111,8 @@ impl Kognitara {
             harvester: KnowledgeHarvester::new(),
             development: DevelopmentalProfile::new(),
             fossil_archive: FossilArchive::new(),
+            hypotheses: HypothesisLedger::default(),
+            imported_research: BTreeSet::new(),
         }
     }
     /// 1. NAP (`nap` / `sieste`) : Fast micro-decantation (3 gentle Breaths).
@@ -162,16 +172,11 @@ impl Kognitara {
     pub fn rest_cycle(&mut self) -> Vec<String> {
         let mut logs = Vec::new();
         let mut total_matured = 0;
-        let mut auto_resolved = 0;
 
         for brain in self.swarm.brains.values_mut() {
             brain.state.rest();
             let matured = brain.tree.gravitational_filiation_maturation();
             total_matured += matured.len();
-            auto_resolved += brain
-                .learner
-                .curiosity_engine
-                .auto_resolve_matured_questions(&brain.tree);
         }
 
         // Ensure nodes 000 and 001 are fully awake and available
@@ -189,12 +194,6 @@ impl Kognitara {
             "[Hara Rest] Homeostasis restored (Attention: 100%, Tension: 0.05). {} concepts nourished by solar filiation.",
             total_matured
         ));
-        if auto_resolved > 0 {
-            logs.push(alloc::format!(
-                "[Silent Illumination] {} questions resolved autonomously through gravitational maturation!",
-                auto_resolved
-            ));
-        }
         logs
     }
 
@@ -230,10 +229,6 @@ impl Kognitara {
                     }
                 }
                 let _ = brain.tree.gravitational_filiation_maturation();
-                let _ = brain
-                    .learner
-                    .curiosity_engine
-                    .auto_resolve_matured_questions(&brain.tree);
             }
             let _ = self.swarm.cosmic_breath_step();
         }
@@ -391,9 +386,57 @@ impl Kognitara {
         Ok(self.council.convene(subject, &reflection, &brain.tree))
     }
 
-    /// Harvests a browser search query or reading trace through the Sovereign Whitelist/Blacklist filter,
-    /// weaving extracted atomic concepts and ecological relations into all awake brains.
-    pub fn harvest_browsing_trace(&mut self, trace: &BrowsingTrace) -> HarvestReport {
+    /// Harvests a trace and records its excerpt as an unverified, sourced hypothesis.
+    pub fn harvest_browsing_trace(&mut self, trace: &BrowsingTrace) -> Result<HarvestReport> {
+        let combined_text = alloc::format!(
+            "{} {} {}",
+            trace.search_query.as_deref().unwrap_or(""),
+            trace.title,
+            trace.snippet
+        );
+        let will_harvest = self
+            .harvester
+            .filter
+            .evaluate(&trace.source_url, &combined_text)
+            .is_allowed()
+            && self
+                .swarm
+                .brains
+                .values()
+                .any(|brain| brain.phase == CircadianPhase::Awake);
+        let mut pending_hypotheses = self.hypotheses.clone();
+        let mut new_hypothesis = None;
+        if will_harvest && !trace.snippet.trim().is_empty() {
+            if trace.source_url.trim().is_empty() {
+                return Err(KlmError::CognitiveError(
+                    "A harvested excerpt requires a source URL.".into(),
+                ));
+            }
+            let exists = pending_hypotheses.hypotheses.iter().any(|hypothesis| {
+                hypothesis.revision() == 0
+                    && hypothesis.statement == trace.snippet.trim()
+                    && hypothesis.evidence.iter().any(|evidence| {
+                        evidence.revision == 0
+                            && evidence.relation == EvidenceRelation::Reports
+                            && evidence.source == trace.source_url.trim()
+                    })
+            });
+            if !exists {
+                let id = pending_hypotheses.add(&trace.snippet, Vec::new())?;
+                let note = if trace.title.trim().is_empty() {
+                    trace.snippet.as_str()
+                } else {
+                    trace.title.as_str()
+                };
+                pending_hypotheses.get_mut(id)?.add_evidence(
+                    EvidenceRelation::Reports,
+                    &trace.source_url,
+                    note,
+                    trace.observed_at,
+                )?;
+                new_hypothesis = Some(id);
+            }
+        }
         let mut primary_report: Option<HarvestReport> = None;
 
         for brain in self.swarm.brains.values_mut() {
@@ -427,7 +470,11 @@ impl Kognitara {
             self.development.evaluate_progression();
         }
 
-        report
+        if let Some(id) = new_hypothesis {
+            pending_hypotheses.get_mut(id)?.related_concepts = report.woven_concepts.clone();
+        }
+        self.hypotheses = pending_hypotheses;
+        Ok(report)
     }
 
     /// Generates a structured `LivingManualEntry` (`kog <query>`) from Kōgnitara's woven knowledge.

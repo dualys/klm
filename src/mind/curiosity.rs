@@ -28,12 +28,36 @@ pub struct OpenQuestion {
 }
 
 /// Autonomous curiosity engine that turns epistemic doubt and contradictions into questions.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct CuriosityEngine {
     /// Active and historical questions asked by Kōgnitara
     pub questions: Vec<OpenQuestion>,
     /// Sequential counter for question identifiers
     pub next_question_index: u64,
+}
+
+impl<'de> Deserialize<'de> for CuriosityEngine {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct SavedEngine {
+            questions: Vec<OpenQuestion>,
+            next_question_index: u64,
+        }
+        let mut saved = SavedEngine::deserialize(deserializer)?;
+        for question in &mut saved.questions {
+            if question.is_resolved
+                && question.resolution_insight.as_deref()
+                    == Some("Assimilated autonomously through gravitational maturation and rest.")
+            {
+                question.is_resolved = false;
+                question.resolution_insight = None;
+            }
+        }
+        Ok(Self {
+            questions: saved.questions,
+            next_question_index: saved.next_question_index,
+        })
+    }
 }
 
 impl CuriosityEngine {
@@ -48,9 +72,6 @@ impl CuriosityEngine {
     /// Scans the Knowledge Tree for nascent concepts with high epistemic doubt or contradictions,
     /// formulating new questions for the family if not already asked.
     pub fn contemplate_and_question(&mut self, tree: &KnowledgeTree) -> Vec<OpenQuestion> {
-        // D'abord, auto-résoudre les questions sur les concepts qui ont mûri en silence
-        let _ = self.auto_resolve_matured_questions(tree);
-
         let mut newly_formed = Vec::new();
 
         // 1. Question unresolved contradictions first (ignore already asked or resolved pairs)
@@ -110,30 +131,6 @@ impl CuriosityEngine {
         }
 
         newly_formed
-    }
-
-    /// Si un concept a mûri par lui-même pendant le repos (confiance >= 0.72),
-    /// Kōgnitara résout sa propre question par illumination autonome.
-    pub fn auto_resolve_matured_questions(&mut self, tree: &KnowledgeTree) -> usize {
-        let mut count = 0;
-        for q in &mut self.questions {
-            if !q.is_resolved {
-                let all_matured = !q.related_concepts.is_empty()
-                    && q.related_concepts.iter().all(|cid| {
-                        tree.get_concept(cid)
-                            .map(|c| c.confidence >= 0.72)
-                            .unwrap_or(false)
-                    });
-                if all_matured {
-                    q.is_resolved = true;
-                    q.resolution_insight = Some(String::from(
-                        "Assimilated autonomously through gravitational maturation and rest.",
-                    ));
-                    count += 1;
-                }
-            }
-        }
-        count
     }
 
     /// Returns all currently unresolved questions ordered by urgency.

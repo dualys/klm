@@ -6,8 +6,8 @@ use crossterm::style::Stylize;
 use crossterm::terminal::{Clear, ClearType, size};
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::{Confirm, Editor, Select, Text};
-use klm::Kognitara;
 use klm::family::MemberId;
+use klm::{EvidenceRelation, Kognitara};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -16,7 +16,9 @@ use std::io::{BufRead, BufReader, BufWriter, Write, stdout};
 use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
+mod research;
 const DATA: &str = "/mnt/kognitara/data";
+const RESEARCH: &str = "/mnt/kognitara/research";
 const TAGS_FILE: &str = "/mnt/kognitara/tags.json";
 use inquire::validator::Validation;
 use klm::{PULSAR_PRIMES, current_timestamp};
@@ -41,6 +43,9 @@ fn cli() -> Command {
         .subcommand(Command::new("status").about("Display Kognitara status"))
         .subcommand(Command::new("teach").about("Teach Kognitara"))
         .subcommand(Command::new("oracles").about("Display dream oracles"))
+        .subcommand(
+            Command::new("research-cycle").about("Run one background Wikipedia research cycle"),
+        )
         .subcommand(
             Command::new("nap")
                 .visible_alias("sieste")
@@ -534,6 +539,98 @@ fn dream(kognitara: &mut Kognitara) {
     pack(kognitara, DATA);
 }
 
+fn hypothesis_command(kognitara: &mut Kognitara, input: &str) -> Option<Result<bool, String>> {
+    let (command, args) = input.split_once(' ').unwrap_or((input, ""));
+    match command {
+        "hypotheses" => {
+            if !args.is_empty() {
+                return Some(Err("Usage: hypotheses".into()));
+            }
+            if kognitara.hypotheses.hypotheses.is_empty() {
+                println!("No hypotheses yet.");
+            }
+            for hypothesis in &kognitara.hypotheses.hypotheses {
+                println!(
+                    "#{} [unverified, revision {}] {}",
+                    hypothesis.id,
+                    hypothesis.revision(),
+                    hypothesis.statement
+                );
+                for (revision, correction) in hypothesis.corrections.iter().enumerate() {
+                    println!(
+                        "  revision {revision}: {} | correction: {}",
+                        correction.previous_statement, correction.reason
+                    );
+                }
+                for evidence in &hypothesis.evidence {
+                    println!(
+                        "  revision {}: {:?} | {} | {} | timestamp {}",
+                        evidence.revision,
+                        evidence.relation,
+                        evidence.source,
+                        evidence.note,
+                        evidence.observed_at
+                    );
+                }
+            }
+            Some(Ok(false))
+        }
+        "hypothesis" => Some(
+            kognitara
+                .hypotheses
+                .add(args, Vec::new())
+                .map(|id| {
+                    println!("Hypothesis #{id} recorded as unverified.");
+                    true
+                })
+                .map_err(|error| error.to_string()),
+        ),
+        "evidence" => Some((|| {
+            let parts: Vec<&str> = args.splitn(4, '|').map(str::trim).collect();
+            if parts.len() != 4 {
+                return Err(
+                    "Usage: evidence <id> | reports/supports/contradicts | source | note".into(),
+                );
+            }
+            let id = parts[0]
+                .parse::<u64>()
+                .map_err(|_| "Invalid hypothesis ID.")?;
+            let relation = match parts[1] {
+                "reports" => EvidenceRelation::Reports,
+                "supports" => EvidenceRelation::Supports,
+                "contradicts" => EvidenceRelation::Contradicts,
+                _ => return Err("Relation must be reports, supports, or contradicts.".into()),
+            };
+            kognitara
+                .hypotheses
+                .get_mut(id)
+                .map_err(|e| e.to_string())?
+                .add_evidence(relation, parts[2], parts[3], current_timestamp())
+                .map_err(|e| e.to_string())?;
+            println!("Evidence recorded; the hypothesis remains unverified.");
+            Ok(true)
+        })()),
+        "correct-hypothesis" => Some((|| {
+            let parts: Vec<&str> = args.splitn(3, '|').map(str::trim).collect();
+            if parts.len() != 3 {
+                return Err("Usage: correct-hypothesis <id> | corrected statement | reason".into());
+            }
+            let id = parts[0]
+                .parse::<u64>()
+                .map_err(|_| "Invalid hypothesis ID.")?;
+            kognitara
+                .hypotheses
+                .get_mut(id)
+                .map_err(|e| e.to_string())?
+                .correct(parts[1], parts[2])
+                .map_err(|e| e.to_string())?;
+            println!("Correction recorded; the new statement remains unverified.");
+            Ok(true)
+        })()),
+        _ => None,
+    }
+}
+
 fn interact(kognitara: &mut Kognitara) {
     loop {
         let todo = Text::new("").prompt().expect("");
@@ -542,7 +639,13 @@ fn interact(kognitara: &mut Kognitara) {
             continue;
         }
 
-        if trimmed.eq_ignore_ascii_case("pack") {
+        if let Some(result) = hypothesis_command(kognitara, trimmed) {
+            match result {
+                Ok(true) => pack(kognitara, DATA),
+                Ok(false) => {}
+                Err(error) => ko(&error),
+            }
+        } else if trimmed.eq_ignore_ascii_case("pack") {
             pack(kognitara, DATA);
         } else if trimmed.eq_ignore_ascii_case("nap") || trimmed.eq_ignore_ascii_case("sieste") {
             for msg in kognitara.nap_cycle() {
@@ -696,6 +799,24 @@ fn pack(kognitara: &Kognitara, path: &str) {
         }
         Err(e) => ko(&format!("Global serialization error: {}", e)),
     }
+}
+
+fn persist_import(kognitara: &Kognitara, path: &Path) -> Result<(), String> {
+    let json =
+        serde_json::to_vec(kognitara).map_err(|e| format!("Cannot serialize memory: {e}"))?;
+    let recipe = klm::KpackRecipe::encode(&json);
+    let mut record =
+        serde_json::to_vec(&recipe).map_err(|e| format!("Cannot serialize snapshot: {e}"))?;
+    record.push(b'\n');
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("Cannot open registry: {e}"))?;
+    file.write_all(&record)
+        .map_err(|e| format!("Cannot write registry: {e}"))?;
+    file.sync_all()
+        .map_err(|e| format!("Cannot sync registry: {e}"))?;
+    Ok(())
 }
 
 fn unpack(kognitara: &mut Kognitara, path: &str) -> bool {
@@ -890,17 +1011,63 @@ fn teach_kognitara(kognitara: &mut Kognitara) {
 }
 
 fn main() {
+    let matches = cli().get_matches();
+    if matches.subcommand_name() == Some("research-cycle") {
+        if let Err(error) = research::cycle(Path::new(DATA), Path::new(RESEARCH)) {
+            eprintln!("Research failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    let lock = match fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open("/mnt/kognitara/registry.lock")
+    {
+        Ok(file) => file,
+        Err(error) => {
+            eprintln!("Cannot open memory lock: {error}");
+            std::process::exit(1);
+        }
+    };
+    if let Err(error) = lock.try_lock() {
+        eprintln!("KLM memory is already in use: {error}");
+        std::process::exit(1);
+    }
     let mut kognitara = Kognitara::new(
         env::var("KOGNITARA_SANCTUARY_NAME")
             .unwrap_or_else(|_| "Sanctuary of House Ki".to_string()),
     );
     if Path::new(DATA).exists() {
-        unpack(&mut kognitara, DATA);
-        relativistic_catchup_on_boot(&mut kognitara);
+        if !unpack(&mut kognitara, DATA) {
+            eprintln!("Cannot open KLM memory; refusing to import research.");
+            std::process::exit(1);
+        }
     } else {
         pack(&kognitara, DATA);
-        unpack(&mut kognitara, DATA);
+        if !unpack(&mut kognitara, DATA) {
+            eprintln!("Cannot create KLM memory.");
+            std::process::exit(1);
+        }
     }
+    match research::import(&mut kognitara, Path::new(RESEARCH)) {
+        Ok(0) => {}
+        Ok(count) => {
+            if let Err(error) = persist_import(&kognitara, Path::new(DATA)) {
+                eprintln!("Cannot save imported research: {error}");
+                std::process::exit(1);
+            }
+            println!("Imported {count} unverified research observation(s).");
+        }
+        Err(error) => {
+            eprintln!("Cannot import research: {error}");
+            std::process::exit(1);
+        }
+    }
+    relativistic_catchup_on_boot(&mut kognitara);
+
     // 2. Ensure the terminal owner (USER) is the founder
     let current_user = ki();
     if !kognitara.sanctuary.is_family(&current_user) {
@@ -911,7 +1078,47 @@ fn main() {
         );
         kognitara.sanctuary.register_member(founder);
     }
-    let app = cli();
-    let matches = app.get_matches();
     kog(&matches, &mut kognitara);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hypothesis_commands_record_evidence_and_corrections() {
+        let mut mind = Kognitara::new("Test");
+        assert_eq!(
+            hypothesis_command(&mut mind, "hypothesis The sky is green").unwrap(),
+            Ok(true)
+        );
+        assert_eq!(
+            hypothesis_command(
+                &mut mind,
+                "evidence 1 | contradicts | observation | The sky is blue"
+            )
+            .unwrap(),
+            Ok(true)
+        );
+        assert_eq!(
+            hypothesis_command(
+                &mut mind,
+                "correct-hypothesis 1 | The sky is blue | observation"
+            )
+            .unwrap(),
+            Ok(true)
+        );
+        assert!(
+            hypothesis_command(&mut mind, "evidence 9 | supports | source | note")
+                .unwrap()
+                .is_err()
+        );
+        assert!(
+            hypothesis_command(&mut mind, "evidence 1 | supports | | note")
+                .unwrap()
+                .is_err()
+        );
+        assert_eq!(mind.hypotheses.hypotheses[0].evidence[0].revision, 0);
+        assert_eq!(mind.hypotheses.hypotheses[0].revision(), 1);
+    }
 }

@@ -11,6 +11,7 @@ pub mod snapshot;
 
 pub use cubefs_vault::{CubeFsVault, VaultCheckpoint};
 pub use fossil::{FossilArchive, FossilizedConcept};
+#[cfg(all(feature = "std", unix))]
 pub use jinshu_ocean::PhysicalBlockDevice;
 pub use jinshu_ocean::{CognitiveOcean, MemoryBlockDevice, OceanEntrySummary};
 pub use kpack_engine::{KpackOpcode, KpackRecipe};

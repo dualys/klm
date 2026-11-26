@@ -13,6 +13,21 @@ use crate::ontology::concept::{Concept, ConceptId, ConceptOrigin};
 use crate::ontology::relation::RelationType;
 use crate::ontology::tree::KnowledgeTree;
 
+const WIKIMEDIA_DOMAINS: &[&str] = &[
+    "wikipedia.org",
+    "wiktionary.org",
+    "wikibooks.org",
+    "wikinews.org",
+    "wikiversity.org",
+    "wikisource.org",
+    "wikiquote.org",
+    "wikivoyage.org",
+    "wikidata.org",
+    "wikimedia.org",
+    "mediawiki.org",
+    "wikifunctions.org",
+];
+
 /// Verdict returned by the Sovereign Filter when inspecting a browser URL, cookie domain, or search trace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilterVerdict {
@@ -41,6 +56,7 @@ impl FilterVerdict {
 /// Sovereign Whitelist & Blacklist filter protecting Kōgnitara from web pollution, trackers,
 /// advertising noise, and private credential leaks while cultivating trusted knowledge gardens.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "SavedSovereignFilter")]
 pub struct SovereignFilter {
     /// Trusted domains approved for knowledge harvesting
     pub whitelisted_domains: BTreeSet<String>,
@@ -52,6 +68,48 @@ pub struct SovereignFilter {
     pub sensitive_privacy_keywords: BTreeSet<String>,
     /// If true, only explicitly whitelisted domains or topics are harvested
     pub strict_whitelist_mode: bool,
+    /// Version of the Wikimedia defaults applied to this saved filter.
+    pub wikimedia_sources_version: u8,
+}
+
+#[derive(Deserialize)]
+struct SavedSovereignFilter {
+    whitelisted_domains: BTreeSet<String>,
+    whitelisted_topics: BTreeSet<String>,
+    blacklisted_domains: BTreeSet<String>,
+    sensitive_privacy_keywords: BTreeSet<String>,
+    strict_whitelist_mode: bool,
+    #[serde(default)]
+    wikimedia_sources_version: u8,
+}
+
+impl From<SavedSovereignFilter> for SovereignFilter {
+    fn from(saved: SavedSovereignFilter) -> Self {
+        let mut filter = Self {
+            whitelisted_domains: saved.whitelisted_domains,
+            whitelisted_topics: saved.whitelisted_topics,
+            blacklisted_domains: saved.blacklisted_domains,
+            sensitive_privacy_keywords: saved.sensitive_privacy_keywords,
+            strict_whitelist_mode: saved.strict_whitelist_mode,
+            wikimedia_sources_version: saved.wikimedia_sources_version,
+        };
+        if filter.wikimedia_sources_version == 0 {
+            for domain in WIKIMEDIA_DOMAINS
+                .iter()
+                .filter(|domain| **domain != "wikipedia.org" && **domain != "wiktionary.org")
+            {
+                if !filter
+                    .blacklisted_domains
+                    .iter()
+                    .any(|blocked| domain.contains(blocked))
+                {
+                    filter.whitelisted_domains.insert((*domain).to_string());
+                }
+            }
+            filter.wikimedia_sources_version = 1;
+        }
+        filter
+    }
 }
 
 impl Default for SovereignFilter {
@@ -67,8 +125,6 @@ impl SovereignFilter {
         for domain in [
             "amentys.local",
             "sanctuary.local",
-            "wikipedia.org",
-            "wiktionary.org",
             "arxiv.org",
             "docs.rs",
             "crates.io",
@@ -82,6 +138,9 @@ impl SovereignFilter {
             "vulkan.org",
         ] {
             whitelisted_domains.insert(domain.to_string());
+        }
+        for domain in WIKIMEDIA_DOMAINS {
+            whitelisted_domains.insert((*domain).to_string());
         }
 
         let mut whitelisted_topics = BTreeSet::new();
@@ -154,6 +213,7 @@ impl SovereignFilter {
             blacklisted_domains,
             sensitive_privacy_keywords,
             strict_whitelist_mode: true,
+            wikimedia_sources_version: 1,
         }
     }
 
@@ -547,14 +607,7 @@ impl KnowledgeHarvester {
             .filter(|w| {
                 !matches!(
                     *w,
-                    "a" | "an"
-                        | "the"
-                        | "some"
-                        | "many"
-                        | "all"
-                        | "together"
-                        | "single"
-                        | "living"
+                    "a" | "an" | "the" | "some" | "many" | "all" | "together" | "single" | "living"
                 )
             })
             .collect();

@@ -156,6 +156,17 @@ cargo install --path .
 klm
 ~~~
 
+The `no_std` library uses the in-memory block device; the terminal application
+and Unix file-backed `PhysicalBlockDevice` require the `std` feature.
+
+The default source filter includes Wikimedia project domains (Wikipedia,
+Wiktionary, Wikibooks, Wikinews, Wikiversity, Wikisource, Wikiquote, Wikivoyage,
+Wikidata, Wikimedia, MediaWiki and Wikifunctions), including language subdomains.
+Existing saved filters receive the newly added defaults without overriding
+explicit blocks. The filter also allows matching configured topics, so it is
+not a domain-only network access policy. Sources are not automatically
+verified; the optional research service currently fetches French Wikipedia only.
+
 ## Interactive Sanctuary Shell & CLI Commands
 
 Inside the interactive shell (`klm`), any input that is not a reserved command is treated as a natural conversation with Kōgnitara and immediately persisted to the append-only `Kpack` registry.
@@ -175,6 +186,19 @@ Inside the interactive shell (`klm`), any input that is not a reserved command i
 | `tags`                  | List all saved historical tags and their iteration numbers   |
 | `pack` / `unpack`       | Manually compress or restore state from `/mnt/kognitara/data` |
 | `clear` / `quit`        | Clear terminal screen or save and exit the Sanctuary shell   |
+| `hypothesis <statement>` | Record an exploratory, unverified statement |
+| `hypotheses`            | List hypotheses, sources and corrections |
+| `evidence <id> \| reports/supports/contradicts \| <source> \| <note>` | Record a source for the current version |
+| `correct-hypothesis <id> \| <statement> \| <reason>` | Correct a statement while preserving its prior version and sources |
+
+Hypotheses remain unverified even when a source supports them. Corrections retain
+the evidence associated with each earlier revision. Accepted browsing traces
+with nonempty excerpts are also stored as sourced hypotheses; KLM does not
+verify claims automatically. A higher concept confidence no
+longer closes open questions without an answer. The existing knowledge graph
+and generated manual do not yet assess or display this evidence; do not treat
+their contents as verified facts. Library callers of `harvest_browsing_trace`
+must handle its `Result`.
 
 You can also invoke subcommands directly from your OS shell:
 
@@ -184,6 +208,31 @@ klm man family
 klm council "La Nature de l'Eau"
 klm tag export v1.0 ./backup_v1.kpack
 ~~~
+
+### Background research
+
+The optional `klm-research.timer` runs one Wikipedia research cycle every six
+hours. It selects only from a small, predefined set of public subjects matching
+KLM's configured topics or open-question concepts. Private conversations and
+question text are never sent to Wikipedia. The cycle requires `curl` and
+accesses French Wikipedia only; it records excerpts and sources, not verified
+facts or peer-reviewed conclusions.
+
+The service writes observations separately under `/mnt/kognitara/research`.
+They are imported and saved when KLM is next opened; no background process
+writes the main registry. Import rejects invalid or blocked sources and avoids
+re-importing observations. Only one interactive KLM process can hold the
+registry lock at a time.
+
+Install with `cargo install --path . --force`, copy `systemd/klm-research.service` and
+`systemd/klm-research.timer` to `~/.config/systemd/user/`, then run
+`systemctl --user daemon-reload` and
+`systemctl --user enable --now klm-research.timer`. The service assumes the
+binary is installed at `~/.cargo/bin/klm`; edit `ExecStart` if it is elsewhere. Inspect
+the timer with `systemctl --user list-timers klm-research.timer` and logs with
+`journalctl --user -u klm-research.service`. Stop it with
+`systemctl --user disable --now klm-research.timer`. User services normally
+stop when the user session ends unless systemd lingering is enabled separately.
 
 ## Library Usage Example
 

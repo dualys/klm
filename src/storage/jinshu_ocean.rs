@@ -13,8 +13,11 @@ use jinshu::router::NounIndex;
 use jinshu::storage::{BlockDevice, StorageEngine};
 use noun::Noun;
 use serde::{Deserialize, Serialize};
-use std::fs::{File, OpenOptions};
-use std::os::unix::fs::FileExt;
+#[cfg(all(feature = "std", unix))]
+use std::{
+    fs::{File, OpenOptions},
+    os::unix::fs::FileExt,
+};
 
 /// In-memory 4096-byte page block device implementing `jinshu::storage::BlockDevice`.
 /// Compatible with `no_std` + `alloc` for Amentys OS and user-space testing.
@@ -24,10 +27,12 @@ pub struct MemoryBlockDevice {
     blocks: RefCell<BTreeMap<u64, [u8; 4096]>>,
 }
 
+#[cfg(all(feature = "std", unix))]
 pub struct PhysicalBlockDevice {
     file: File,
 }
 
+#[cfg(all(feature = "std", unix))]
 impl PhysicalBlockDevice {
     pub fn new(path: &str) -> std::io::Result<Self> {
         let file = OpenOptions::new()
@@ -39,6 +44,7 @@ impl PhysicalBlockDevice {
     }
 }
 
+#[cfg(all(feature = "std", unix))]
 impl BlockDevice for PhysicalBlockDevice {
     fn write_node(&self, lba: u64, data_phys_addr: u64) {
         let offset = lba * 4096;

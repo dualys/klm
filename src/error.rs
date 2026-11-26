@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use alloc::string::String;
+use alloc::{format, string::String};
 use core::fmt;
 
 /// Framework error categories for Kōgnitara (klm).

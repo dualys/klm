@@ -1,0 +1,7 @@
+[Unit]
+Description=KLM Wikipedia research cycle
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.cargo/bin/klm research-cycle
