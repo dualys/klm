@@ -6,7 +6,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const TOPICS: &[(&str, &str)] = &[
+pub(crate) const TOPICS: &[(&str, &str)] = &[
     ("tree", "Arbre"),
     ("forest", "Forêt"),
     ("earth", "Terre"),
@@ -186,7 +186,7 @@ fn parse_links(body: &[u8]) -> Result<Vec<String>, String> {
         .collect())
 }
 
-fn latest_snapshot(path: &Path) -> Result<Kognitara, String> {
+pub(crate) fn latest_snapshot(path: &Path) -> Result<Kognitara, String> {
     let file = File::open(path).map_err(|e| format!("Cannot open registry: {e}"))?;
     let mut reader = BufReader::new(file);
     let mut latest = Vec::new();
@@ -214,7 +214,7 @@ fn latest_snapshot(path: &Path) -> Result<Kognitara, String> {
     serde_json::from_slice(&json).map_err(|e| format!("Cannot restore snapshot: {e}"))
 }
 
-fn topic_enabled(mind: &Kognitara, topic: &str, title: &str) -> bool {
+pub(crate) fn topic_enabled(mind: &Kognitara, topic: &str, title: &str) -> bool {
     if mind.harvester.filter.whitelisted_topics.contains(topic) {
         return true;
     }
@@ -273,11 +273,16 @@ fn parse_summary(topic: &str, body: &[u8]) -> Result<Observation, String> {
     })
 }
 
-fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
+pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
     let temp = path.with_extension(format!("tmp-{}", std::process::id()));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
         .open(&temp)
         .map_err(|e| format!("Cannot create {}: {e}", temp.display()))?;
     let result = (|| -> io::Result<()> {
@@ -309,7 +314,7 @@ fn read_cursor(directory: &Path) -> Result<usize, String> {
     }
 }
 
-fn encode_path(value: &str) -> String {
+pub(crate) fn encode_path(value: &str) -> String {
     let mut encoded = String::new();
     for byte in value.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
@@ -372,12 +377,23 @@ pub fn cycle(registry: &Path, directory: &Path) -> Result<(), String> {
     cycle_with(registry, directory, fetch_summary, fetch_links)
 }
 
-fn cycle_with(
-    registry: &Path,
-    directory: &Path,
-    fetch: impl FnOnce(&str) -> Result<Vec<u8>, String>,
-    links: impl FnOnce(&str) -> Result<Vec<String>, String>,
-) -> Result<(), String> {
+pub(crate) fn review_summary(
+    mind: &Kognitara,
+    topic: &str,
+    title: &str,
+) -> Result<(String, String), String> {
+    let observation = parse_summary(topic, &fetch_summary(title)?)?;
+    let verdict = mind
+        .harvester
+        .filter
+        .evaluate(&observation.trace.source_url, &observation.trace.snippet);
+    if !verdict.is_allowed() {
+        return Err(format!("Research source rejected by filter: {verdict:?}"));
+    }
+    Ok((observation.trace.source_url, observation.trace.snippet))
+}
+
+pub(crate) fn worker_lock(directory: &Path) -> Result<File, String> {
     fs::create_dir_all(directory).map_err(|e| format!("Cannot create research directory: {e}"))?;
     let lock = OpenOptions::new()
         .read(true)
@@ -388,6 +404,16 @@ fn cycle_with(
         .map_err(|e| format!("Cannot open research lock: {e}"))?;
     lock.try_lock()
         .map_err(|e| format!("Another research cycle is running: {e}"))?;
+    Ok(lock)
+}
+
+fn cycle_with(
+    registry: &Path,
+    directory: &Path,
+    fetch: impl FnOnce(&str) -> Result<Vec<u8>, String>,
+    links: impl FnOnce(&str) -> Result<Vec<String>, String>,
+) -> Result<(), String> {
+    let _lock = worker_lock(directory)?;
     let mind = latest_snapshot(registry)?;
     let mut queue = match read_queue(directory)? {
         Some(queue) => queue,

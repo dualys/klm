@@ -98,8 +98,8 @@ function stat(label, value) {
   return node;
 }
 function render(state) {
-  $("#nav-hypotheses").textContent = state.hypotheses.length;
-  $("#nav-reflections").textContent = state.reflections.length;
+  $("#nav-hypotheses").textContent = state.hypotheses_count;
+  $("#nav-reflections").textContent = state.reflections_count;
   $("#status-summary").replaceChildren(
     stat("Sanctuaire", state.sanctuary),
     stat("Époque", state.epoch),
@@ -112,10 +112,22 @@ function render(state) {
     return node;
   });
   $("#brains").replaceChildren(...brains);
-  const hypotheses = state.hypotheses.map((item) => {
+  const night = state.night_review;
+  $("#night-summary").replaceChildren(...(night ? [
+    stat("Concepts examinés", night.concept_examinations),
+    stat("Hypothèses examinées", night.hypothesis_examinations),
+    stat("Dernier passage", night.last_run ? new Date(night.last_run * 1000).toLocaleString("fr-FR") : "—")
+  ] : []));
+}
+
+function hypothesisNode(result) {
+    const item = result.hypothesis;
     const node = element("article", undefined, "entry");
     node.append(element("span", `HYPOTHÈSE #${item.id} · NON VÉRIFIÉE · RÉVISION ${item.corrections.length}`, "entry-meta"),
       element("h3", item.statement));
+    if (result.examinations !== null) {
+      node.append(element("p", `${result.examinations} examen(s) nocturne(s) · Dernier : ${new Date(result.examined_at * 1000).toLocaleString("fr-FR")}`));
+    }
     const sources = item.evidence.filter((entry) => entry.revision === item.corrections.length);
     if (!sources.length) node.append(element("p", "Aucune source pour cette révision."));
     else {
@@ -140,20 +152,92 @@ function render(state) {
       node.append(list);
     }
     return node;
-  });
-  $("#hyp-list").replaceChildren(...(hypotheses.length ? hypotheses : [element("div", "Aucune hypothèse enregistrée.", "empty")]));
-  const reflections = [...state.reflections].reverse().map((item) => {
+}
+function reflectionNode(item) {
     const node = element("article", undefined, "entry");
     const date = new Date(item.created_at * 1000).toLocaleString("fr-FR");
     node.append(element("span", `${date} · CERVEAU ${item.brain} · ${item.stage}`, "entry-meta"),
       element("h3", item.maieutic_question), element("p", item.interior_monologue));
     return node;
+}
+function nightNode(item) {
+    if (item.kind === "Hypothesis") {
+      const review = item.value;
+      const node = element("article", undefined, "entry");
+      node.append(element("span", `HYPOTHÈSE #${review.id} · RÉVISION ${review.revision} · ${review.examinations} EXAMEN(S) · NON VÉRIFIÉE`, "entry-meta"),
+        element("h3", review.statement),
+        element("p", `Sources enregistrées : ${review.reports} signalement(s), ${review.supports} soutien(s), ${review.contradicts} contradiction(s).`));
+      for (const contradiction of review.contradictions) node.append(element("p", `Lien contradictoire enregistré : ${contradiction}`));
+      for (const question of review.questions) node.append(element("p", question));
+      if (review.wikipedia) {
+        node.append(element("p", `Extrait Wikipédia consulté le ${new Date(review.wikipedia.examined_at * 1000).toLocaleString("fr-FR")} : ${review.wikipedia.excerpt}`),
+          element("p", `Source : ${review.wikipedia.source} — cet extrait ne vérifie pas automatiquement l'hypothèse.`));
+      }
+      return node;
+    }
+    const concept = item.value;
+    const node = element("article", undefined, "entry");
+    node.append(element("span", `CERVEAU ${concept.brain} · CONCEPT`, "entry-meta"),
+      element("h3", concept.label), element("p", concept.question));
+    for (const contradiction of concept.contradictions) node.append(element("p", `Lien contradictoire enregistré avec : ${contradiction}`));
+    return node;
+}
+
+const lists = [
+  {prefix: "hyp", endpoint: "hypotheses", render: hypothesisNode, empty: "Aucune hypothèse enregistrée."},
+  {prefix: "ref", endpoint: "reflections", render: reflectionNode, empty: "Aucune réflexion pendant les dernières 24 heures."},
+  {prefix: "night", endpoint: "night", render: nightNode, empty: "Aucun examen nocturne enregistré."},
+].map((list) => ({...list, page: 1, displayedPage: 1, pages: 1, sequence: 0, debounce: null}));
+
+async function loadList(list) {
+  const sequence = ++list.sequence;
+  const input = $(`#${list.prefix}-search`);
+  const controls = $(`#${list.prefix}-pages`);
+  controls.querySelector(".previous").disabled = true;
+  controls.querySelector(".next").disabled = true;
+  const query = new URLSearchParams({page: list.page, q: input.value});
+  let result;
+  try {
+    result = await api(`/api/${list.endpoint}?${query}`);
+  } catch (error) {
+    if (sequence !== list.sequence) return;
+    list.page = list.displayedPage;
+    controls.querySelector(".previous").disabled = list.page <= 1;
+    controls.querySelector(".next").disabled = list.page >= list.pages;
+    throw error;
+  }
+  if (sequence !== list.sequence) return;
+  list.page = result.page;
+  list.displayedPage = result.page;
+  list.pages = result.pages;
+  const nodes = result.items.map(list.render);
+  const empty = input.value.trim() ? "Aucun résultat pour cette recherche." : list.empty;
+  $(`#${list.prefix}-list`).replaceChildren(...(nodes.length ? nodes : [element("div", empty, "empty")]));
+  controls.querySelector("span").textContent = `${result.total} résultat(s) · Page ${result.page} sur ${result.pages}`;
+  controls.querySelector(".previous").disabled = result.page <= 1;
+  controls.querySelector(".next").disabled = result.page >= result.pages;
+}
+
+for (const list of lists) {
+  const controls = $(`#${list.prefix}-pages`);
+  controls.querySelector(".previous").disabled = true;
+  controls.querySelector(".next").disabled = true;
+  const reload = () => loadList(list).catch((error) => showError(error.message));
+  controls.querySelector(".previous").addEventListener("click", () => { list.page--; reload(); });
+  controls.querySelector(".next").addEventListener("click", () => { list.page++; reload(); });
+  $(`#${list.prefix}-search`).addEventListener("input", () => {
+    list.page = 1;
+    list.sequence++;
+    controls.querySelector(".previous").disabled = true;
+    controls.querySelector(".next").disabled = true;
+    clearTimeout(list.debounce);
+    list.debounce = setTimeout(reload, 250);
   });
-  $("#ref-list").replaceChildren(...(reflections.length ? reflections : [element("div", "Aucune réflexion pendant les dernières 24 heures.", "empty")]));
 }
 async function refresh() {
   try {
     render(await api("/api/state"));
+    await Promise.all(lists.map(loadList));
     clearError();
   } catch (error) {
     showError(error.message, true);

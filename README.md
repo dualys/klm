@@ -199,6 +199,10 @@ token may be able to use it.
 The interface offers conversation, brain status, hypotheses with current
 sources, and reflections from the last 24 hours. Conversations are saved to the
 same registry after each message; their on-screen transcript is temporary.
+Hypotheses, 24-hour reflections and night reviews each have a local,
+case-insensitive text search and server-side pages of at most 50 entries.
+The search operates on the KLM records shown by the interface; it does not use
+the Jinshu index or query the internet.
 Its light or dark theme follows the browser's system color preference.
 The research and backup countdowns show the next scheduled user-systemd timer
 elapses, refreshed every 15 seconds; they do not guarantee that a run succeeds.
@@ -304,7 +308,30 @@ snapshots up to and including that tag, not discarded untagged history.
 ### Background research
 
 The optional `klm-research.timer` runs one Wikipedia research cycle every five
-minutes. Initially it selects from a predefined set of public subjects matching
+minutes from 08:00 to midnight, in the system's local time. From midnight to
+08:00 the same timer instead runs a bounded night review of the last complete
+saved snapshot. Each pass examines up to 20 concepts and 10 hypotheses, using
+persistent cursors to continue on subsequent passes. It records source
+relations, existing contradiction links and template questions separately in
+`research/night-review.state`. The interface shows these examinations in
+**Examen nocturne**, and shows the count for the current hypothesis revision.
+Refresh the interface to see new results. Examining is not correcting: it does
+not change the hypothesis, its revision, or its unverified status. It cannot
+determine the truth of claims or infer factual contradictions from text.
+
+At most once every five minutes, a night review may re-fetch a Wikipedia summary
+for an examined hypothesis, but only when a current-revision source is an
+enabled, predefined public topic. No conversation or private question is sent.
+The excerpt is recorded for comparison, not treated as proof; a failed request
+is logged and still counts toward the interval. A limited set of eligible
+titles may mean no request occurs during a pass. Existing day research is paused
+at night; backups are not paused. Reviews read the latest saved snapshot, so
+changes not yet saved or research observations not yet imported are not seen.
+The PC and user systemd manager must be running; missed hours are not replayed.
+The interface can remain open during review, but its registry lock still blocks
+the USB backup until KLM is closed.
+
+During the day, research initially selects from a predefined set of public subjects matching
 KLM's configured topics or open-question concepts. It follows public Wikipedia
 article links into a local queue of at most 100 pending subjects, avoiding
 duplicates; failed subjects remain queued. This can lead beyond the original

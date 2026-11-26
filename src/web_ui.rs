@@ -1,4 +1,4 @@
-use crate::{persist_import, reflection_log};
+use crate::{night_review, persist_import, reflection_log, web_lists};
 use klm::{Kognitara, current_timestamp, family::MemberId};
 use serde::Deserialize;
 use serde_json::json;
@@ -108,7 +108,9 @@ fn handle(
         return;
     }
 
-    match (request.method(), request.url()) {
+    let url = request.url().to_owned();
+    let (path, query) = url.split_once('?').unwrap_or((&url, ""));
+    match (request.method(), path) {
         (&Method::Get, "/") => reply(
             request,
             200,
@@ -127,13 +129,17 @@ fn handle(
             "text/javascript; charset=utf-8",
             include_str!("web_ui.js"),
         ),
-        (&Method::Get, "/api/state" | "/api/timers") | (&Method::Post, "/api/chat") => {
+        (
+            &Method::Get,
+            "/api/state" | "/api/timers" | "/api/hypotheses" | "/api/reflections" | "/api/night",
+        )
+        | (&Method::Post, "/api/chat") => {
             if header(&request, "Authorization") != Some(format!("Bearer {token}").as_str()) {
                 error(request, 401, "Session token missing or invalid.");
                 return;
             }
             if request.method() == &Method::Get {
-                if request.url() == "/api/timers" {
+                if path == "/api/timers" {
                     match timers() {
                         Ok(timers) => reply(
                             request,
@@ -145,6 +151,19 @@ fn handle(
                             eprintln!("Cannot read timers: {timer_error}");
                             error(request, 503, &timer_error);
                         }
+                    }
+                    return;
+                }
+                if matches!(path, "/api/hypotheses" | "/api/reflections" | "/api/night") {
+                    let review_dir = data.parent().unwrap_or(Path::new(".")).join("research");
+                    match web_lists::page(mind, &review_dir, path, query) {
+                        Ok(page) => reply(
+                            request,
+                            200,
+                            "application/json; charset=utf-8",
+                            page.to_string(),
+                        ),
+                        Err((status, message)) => error(request, status, &message),
                     }
                     return;
                 }
@@ -161,13 +180,27 @@ fn handle(
                         })
                     })
                     .collect();
+                let review_dir = data.parent().unwrap_or(Path::new(".")).join("research");
+                let night_review = match night_review::read(&review_dir) {
+                    Ok(review) => review,
+                    Err(read_error) => {
+                        eprintln!("Cannot read night review: {read_error}");
+                        error(request, 503, &read_error);
+                        return;
+                    }
+                };
                 let state = json!({
                     "sanctuary": mind.sanctuary.sanctuary_name,
                     "epoch": mind.swarm.global_epoch,
                     "brains": brains,
-                    "hypotheses": mind.hypotheses.hypotheses,
-                    "reflections": reflection_log::recent(mind, current_timestamp()),
+                    "hypotheses_count": mind.hypotheses.hypotheses.len(),
+                    "reflections_count": reflection_log::recent(mind, current_timestamp()).len(),
                     "questions": mind.pending_questions(),
+                    "night_review": night_review.as_ref().map(|review| json!({
+                        "concept_examinations": review.concept_examinations,
+                        "hypothesis_examinations": review.hypothesis_examinations,
+                        "last_run": review.last_run,
+                    })),
                 });
                 reply(
                     request,

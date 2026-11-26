@@ -17,8 +17,10 @@ use std::sync::OnceLock;
 use std::thread::sleep;
 use std::time::Duration;
 mod command_history;
+mod night_review;
 mod reflection_log;
 mod research;
+mod web_lists;
 mod web_ui;
 use inquire::validator::Validation;
 use klm::{PULSAR_PRIMES, current_timestamp};
@@ -1210,7 +1212,12 @@ fn main() {
         std::process::exit(1);
     }
     if matches.subcommand_name() == Some("research-cycle") {
-        if let Err(error) = research::cycle(&storage_paths().data, &storage_paths().research) {
+        let result = if night_review::is_night(chrono::Local::now()) {
+            night_review::cycle(&storage_paths().data, &storage_paths().research)
+        } else {
+            research::cycle(&storage_paths().data, &storage_paths().research)
+        };
+        if let Err(error) = result {
             eprintln!("Research failed: {error}");
             std::process::exit(1);
         }

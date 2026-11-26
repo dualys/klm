@@ -8,9 +8,9 @@ const DAY_SECONDS: i64 = 24 * 60 * 60;
 
 #[derive(Serialize)]
 pub(crate) struct Entry<'a> {
-    brain: u8,
+    pub(crate) brain: u8,
     #[serde(flatten)]
-    reflection: &'a SocraticReflection,
+    pub(crate) reflection: &'a SocraticReflection,
 }
 
 pub(crate) fn recent(mind: &Kognitara, now: i64) -> Vec<Entry<'_>> {
