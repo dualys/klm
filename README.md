@@ -244,8 +244,8 @@ snapshots up to and including that tag, not discarded untagged history.
 
 ### Background research
 
-The optional `klm-research.timer` runs one Wikipedia research cycle every six
-hours. It selects only from a small, predefined set of public subjects matching
+The optional `klm-research.timer` runs one Wikipedia research cycle every hour.
+It selects only from a small, predefined set of public subjects matching
 KLM's configured topics or open-question concepts. Private conversations and
 question text are never sent to Wikipedia. The cycle requires `curl` and
 accesses French Wikipedia only; it records excerpts and sources, not verified
