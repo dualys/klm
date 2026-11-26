@@ -410,6 +410,18 @@ mod tests {
         }
         assert_eq!(import(&mut mind, &journal).unwrap(), 1);
         assert_eq!(import(&mut mind, &journal).unwrap(), 0);
+        let mut restored: Kognitara =
+            serde_json::from_slice(&serde_json::to_vec(&mind).unwrap()).unwrap();
+        assert_eq!(import(&mut restored, &journal).unwrap(), 0);
+        for concept in ["arbre", "tree"] {
+            let page = restored.render_markdown_page(concept).unwrap();
+            assert!(page.contains("Unverified hypothesis #"));
+            assert!(page.contains("https://fr.wikipedia.org/wiki/Arbre"));
+            assert!(page.contains("not fact verification"));
+        }
+        let (response, _) = restored.converse(&klm::MemberId::from("ki"), "Tell me about arbre");
+        assert!(response.contains("Unverified hypothesis #"));
+        assert!(response.contains("https://fr.wikipedia.org/wiki/Arbre"));
         for entry in fs::read_dir(&journal).unwrap() {
             fs::remove_file(entry.unwrap().path()).unwrap();
         }

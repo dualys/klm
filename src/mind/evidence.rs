@@ -51,6 +51,34 @@ impl Hypothesis {
         self.corrections.len()
     }
 
+    /// Display only sources attached to the current statement, not earlier revisions.
+    pub fn display_current(&self) -> String {
+        let mut text = alloc::format!(
+            "Unverified hypothesis #{} (revision {}): {}",
+            self.id,
+            self.revision(),
+            self.statement
+        );
+        let mut found = false;
+        for evidence in self
+            .evidence
+            .iter()
+            .filter(|e| e.revision == self.revision())
+        {
+            found = true;
+            text.push_str(&alloc::format!(
+                "\n  {:?}: {} ({})",
+                evidence.relation,
+                evidence.source,
+                evidence.note
+            ));
+        }
+        if !found {
+            text.push_str("\n  No source recorded for this revision.");
+        }
+        text
+    }
+
     pub fn add_evidence(
         &mut self,
         relation: EvidenceRelation,
@@ -102,6 +130,18 @@ pub struct HypothesisLedger {
 }
 
 impl HypothesisLedger {
+    pub fn related_to<'a>(&'a self, concepts: &[ConceptId]) -> Vec<&'a Hypothesis> {
+        self.hypotheses
+            .iter()
+            .filter(|hypothesis| {
+                hypothesis
+                    .related_concepts
+                    .iter()
+                    .any(|id| concepts.contains(id))
+            })
+            .collect()
+    }
+
     pub fn add(&mut self, statement: &str, related_concepts: Vec<ConceptId>) -> Result<u64> {
         let statement = statement.trim();
         if statement.is_empty() {

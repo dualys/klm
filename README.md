@@ -195,10 +195,12 @@ Hypotheses remain unverified even when a source supports them. Corrections retai
 the evidence associated with each earlier revision. Accepted browsing traces
 with nonempty excerpts are also stored as sourced hypotheses; KLM does not
 verify claims automatically. A higher concept confidence no
-longer closes open questions without an answer. The existing knowledge graph
-and generated manual do not yet assess or display this evidence; do not treat
-their contents as verified facts. Library callers of `harvest_browsing_trace`
-must handle its `Result`.
+longer closes open questions without an answer. Conversation responses and
+manual pages display related hypotheses, their current-revision sources, and
+an explicit warning: graph associations and confidence are not verification.
+Associations are heuristic; unrelated or older records may not appear there.
+Use `hypotheses` to inspect all revisions and sources. Library callers of
+`harvest_browsing_trace` must handle its `Result`.
 
 You can also invoke subcommands directly from your OS shell:
 

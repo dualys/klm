@@ -293,10 +293,26 @@ impl Kognitara {
         // Trigger Anamnesis recall if the utterance resonates with a forgotten Kpack fossil
         let _ = self.anamnesis_recall(utterance);
 
-        let result = self.swarm.interact(utterance, affinity);
+        let (mut response, activated) = self.swarm.interact(utterance, affinity);
+        response
+            .push_str("\n\nGraph associations and confidence scores are not fact verification.");
+        let related = self.hypotheses.related_to(&activated);
+        if !related.is_empty() {
+            response.push_str("\nRelated records (not proof of the graph's claims):");
+            for hypothesis in related.iter().take(3) {
+                response.push('\n');
+                response.push_str(&hypothesis.display_current());
+            }
+            if related.len() > 3 {
+                response.push_str(&alloc::format!(
+                    "\n{} more related records; use hypotheses to see all.",
+                    related.len() - 3
+                ));
+            }
+        }
         self.development.experiences_integrated += 1;
         self.development.evaluate_progression();
-        result
+        (response, activated)
     }
     /// Renders a Markdown living manual page for the given concept query.
     pub fn render_markdown_page(&self, query: &str) -> Option<String> {
@@ -471,7 +487,18 @@ impl Kognitara {
         }
 
         if let Some(id) = new_hypothesis {
-            pending_hypotheses.get_mut(id)?.related_concepts = report.woven_concepts.clone();
+            let mut related_concepts = report.woven_concepts.clone();
+            for tag in &trace.interest_tags {
+                for brain in self.swarm.brains.values() {
+                    if brain.phase == CircadianPhase::Awake
+                        && let Some(concept) = brain.tree.resolve_exact(tag)
+                        && !related_concepts.contains(&concept.id)
+                    {
+                        related_concepts.push(concept.id.clone());
+                    }
+                }
+            }
+            pending_hypotheses.get_mut(id)?.related_concepts = related_concepts;
         }
         self.hypotheses = pending_hypotheses;
         Ok(report)
@@ -498,14 +525,21 @@ impl Kognitara {
         let oracles = self.dream_oracles();
         let reflections = self.socratic_reflections();
 
-        LivingManual::generate_entry(
+        let mut entry = LivingManual::generate_entry(
             &brain.tree,
             &self.sanctuary,
             &oracles,
             &reflections,
             &self.council.deliberations,
             query,
-        )
+        )?;
+        entry.related_hypotheses = self
+            .hypotheses
+            .related_to(core::slice::from_ref(&entry.concept_id))
+            .into_iter()
+            .cloned()
+            .collect();
+        Some(entry)
     }
 
     /// Renders a formatted Unix-style `KOG(1)` living manual page for the given concept query.

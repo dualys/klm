@@ -146,6 +146,61 @@ fn harvested_hypotheses_keep_sources_and_corrections() {
 }
 
 #[test]
+fn responses_and_manuals_show_related_current_sources_without_verifying_them() {
+    let mut mind = Kognitara::new("Test");
+    let trace = BrowsingTrace::new(
+        "https://en.wikipedia.org/wiki/Tree",
+        None,
+        "Tree",
+        "Trees grow from seeds.",
+        vec![],
+    );
+    mind.harvest_browsing_trace(&trace).unwrap();
+    let other = BrowsingTrace::new(
+        "https://en.wikipedia.org/wiki/Ocean",
+        None,
+        "Ocean",
+        "Oceans contain water.",
+        vec![],
+    );
+    mind.harvest_browsing_trace(&other).unwrap();
+
+    let (answer, _) = mind.converse(&MemberId::from("ki"), "Tell me about trees");
+    assert!(answer.contains("Unverified hypothesis #1"));
+    assert!(answer.contains(&trace.source_url));
+    assert!(answer.contains("not fact verification"));
+    assert!(!answer.contains(&other.source_url));
+    for page in [
+        mind.render_markdown_page("tree").unwrap(),
+        mind.render_man_page("tree").unwrap(),
+        mind.render_html_ark_page("tree").unwrap(),
+    ] {
+        assert!(page.contains("Unverified hypothesis #1"));
+        assert!(page.contains(&trace.source_url));
+        assert!(page.contains("not fact verification"));
+        assert!(!page.contains(&other.source_url));
+    }
+
+    mind.hypotheses
+        .get_mut(1)
+        .unwrap()
+        .correct("Many trees grow from seeds.", "Not all trees do")
+        .unwrap();
+    let page = mind.render_markdown_page("tree").unwrap();
+    assert!(page.contains("Many trees grow from seeds."));
+    assert!(page.contains("No source recorded for this revision."));
+    assert!(!page.contains(&trace.source_url));
+    mind.hypotheses
+        .get_mut(1)
+        .unwrap()
+        .add_evidence(EvidenceRelation::Supports, "new source", "Updated", 42)
+        .unwrap();
+    let page = mind.render_markdown_page("tree").unwrap();
+    assert!(page.contains("Supports: new source"));
+    assert!(!page.contains(&trace.source_url));
+}
+
+#[test]
 fn confidence_growth_does_not_resolve_questions() {
     let mut mind = Kognitara::new("Test");
     let member = MemberId::from("ki");

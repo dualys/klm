@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::council::assembly::CouncilDeliberation;
 use crate::dream::journal::DreamOracle;
 use crate::family::sanctuary::Sanctuary;
+use crate::mind::evidence::Hypothesis;
 use crate::mind::socratic::SocraticReflection;
 use crate::ontology::concept::{Concept, ConceptId, ConceptOrigin};
 use crate::ontology::relation::RelationType;
@@ -48,6 +49,9 @@ pub struct LivingManualEntry {
     pub socratic_inquiry: Option<String>,
     /// Related concepts for cross-navigation (`kog <concept>`)
     pub see_also: Vec<String>,
+    /// Related exploratory records; these do not verify the concept or its relations.
+    #[serde(default)]
+    pub related_hypotheses: Vec<Hypothesis>,
 }
 
 /// Generator for Kōgnitara's Living Manual (`kog` man-of-life pages) and the Resilient Offline Web Ark.
@@ -150,7 +154,7 @@ impl LivingManual {
             }
             ConceptOrigin::HarvestedSeed { source_domain } => {
                 notes.push(format!(
-                    "Harvested from sovereign whitelisted source '{}'.",
+                    "Harvested from domain '{}'; the content is not independently verified.",
                     source_domain
                 ));
             }
@@ -250,6 +254,7 @@ impl LivingManual {
             family_and_elders_notes: notes,
             socratic_inquiry,
             see_also,
+            related_hypotheses: Vec::new(),
         }
     }
 
@@ -268,7 +273,7 @@ impl LivingManual {
             name_lower,
             concept.description.trim_end_matches('.'),
             if concept.confidence >= 0.75 {
-                "deeply consolidated knowledge"
+                "high graph confidence, not verification"
             } else if concept.confidence >= 0.45 {
                 "maturing Socratic intuition"
             } else {
@@ -329,10 +334,18 @@ impl LivingManual {
         }
 
         out.push_str(&format!(
-            "ESSENCE (Woven across {} experiences — Confidence: {}%)\n",
+            "ESSENCE (Woven across {} experiences — Graph confidence: {}%, not verification)\n",
             entry.experience_count, entry.confidence_percent
         ));
         out.push_str(&format!("    {}\n\n", entry.woven_essence));
+        out.push_str("EVIDENCE STATUS\n    Graph associations and confidence scores are not fact verification.\n    Related records are not proof of graph claims.\n");
+        for hypothesis in &entry.related_hypotheses {
+            out.push_str(&format!(
+                "    {}\n",
+                hypothesis.display_current().replace('\n', "\n    ")
+            ));
+        }
+        out.push('\n');
 
         out.push_str("RELATIONS IN THE TREE OF KNOWLEDGE\n");
         if !entry.grows_from.is_empty() {
@@ -407,10 +420,17 @@ impl LivingManual {
         }
 
         out.push_str(&format!(
-            "## Essence\n*Woven across {} experiences — Confidence: {}%*\n\n",
+            "## Essence\n*Woven across {} experiences — Graph confidence: {}%, not verification*\n\n",
             entry.experience_count, entry.confidence_percent
         ));
         out.push_str(&format!("{}\n\n", entry.woven_essence));
+        out.push_str("## Evidence status\nGraph associations and confidence scores are not fact verification. Related records are not proof of graph claims.\n\n");
+        for hypothesis in &entry.related_hypotheses {
+            out.push_str(&format!(
+                "{}\n\n",
+                hypothesis.display_current().replace('\n', "  \n")
+            ));
+        }
 
         out.push_str("## Relations in the Tree of Knowledge\n");
         if !entry.grows_from.is_empty() {
@@ -477,6 +497,20 @@ impl LivingManual {
             .iter()
             .map(|n| format!("<li>{}</li>", n))
             .collect();
+        let evidence_html: Vec<String> = entry
+            .related_hypotheses
+            .iter()
+            .map(|hypothesis| {
+                let text = hypothesis.display_current();
+                let escaped = text
+                    .replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;")
+                    .replace('"', "&quot;")
+                    .replace('\'', "&#39;");
+                format!("<li><pre>{escaped}</pre></li>")
+            })
+            .collect();
 
         format!(
             "<!DOCTYPE html>\n\
@@ -494,10 +528,15 @@ impl LivingManual {
 </head>\n\
 <body>\n\
   <h1>{id}(1) &mdash; {label}</h1>\n\
-  <p class=\"meta\">Filiation: {filiation} | Confidence: {conf}% | Experiences: {exp}</p>\n\
+  <p class=\"meta\">Filiation: {filiation} | Graph confidence: {conf}% (not verification) | Experiences: {exp}</p>\n\
   <div class=\"card\">\n\
     <h2>ESSENCE</h2>\n\
     <p>{essence}</p>\n\
+  </div>\n\
+  <div class=\"card\">\n\
+    <h2>EVIDENCE STATUS</h2>\n\
+    <p>Graph associations and confidence scores are not fact verification. Related records are not proof of graph claims.</p>\n\
+    <ul>{evidence}</ul>\n\
   </div>\n\
   <div class=\"card\">\n\
     <h2>RELATIONS IN THE TREE OF KNOWLEDGE</h2>\n\
@@ -524,6 +563,7 @@ impl LivingManual {
             sustains = entry.sustains.join(", "),
             harmonizes = entry.harmonizes.join(", "),
             notes = notes_html.join(""),
+            evidence = evidence_html.join(""),
             see_also = see_also_links.join(" | "),
         )
     }
@@ -533,7 +573,7 @@ impl LivingManual {
         let mut items = Vec::new();
         for (id, c) in &tree.concepts {
             items.push(format!(
-                "<li><a href=\"/kog/{0}\"><strong>{1}</strong> (<code>{0}</code>)</a> &mdash; {2} <em>({3}%)</em></li>",
+                "<li><a href=\"/kog/{0}\"><strong>{1}</strong> (<code>{0}</code>)</a> &mdash; {2} <em>(graph confidence: {3}%)</em></li>",
                 id.0,
                 c.label,
                 c.description,
@@ -551,6 +591,7 @@ impl LivingManual {
 <body>\n\
   <h1>{sanctuary} &mdash; Sovereign Offline Knowledge Ark</h1>\n\
   <p>Total woven concepts: {count}</p>\n\
+  <p>Graph associations and confidence scores are not fact verification.</p>\n\
   <ul>\n\
     {items}\n\
   </ul>\n\
