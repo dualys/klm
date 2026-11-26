@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::thread::sleep;
 use std::time::Duration;
+mod command_history;
+mod reflection_log;
 mod research;
 use inquire::validator::Validation;
 use klm::{PULSAR_PRIMES, current_timestamp};
@@ -701,13 +703,68 @@ fn equivalence_command(mind: &mut Kognitara, input: &str) -> Option<Result<bool,
 }
 
 fn interact(kognitara: &mut Kognitara) {
+    let history = match command_history::state_dir().and_then(command_history::CommandHistory::new)
+    {
+        Ok(history) => Some(history),
+        Err(error) => {
+            eprintln!("Command history unavailable: {error}");
+            None
+        }
+    };
+    let mut editor = match rustyline::Config::builder()
+        .max_history_size(command_history::HISTORY_LIMIT)
+        .and_then(|config| rustyline::DefaultEditor::with_config(config.build()))
+    {
+        Ok(editor) => editor,
+        Err(error) => {
+            eprintln!("Cannot start command editor: {error}");
+            return;
+        }
+    };
+    let history = history.and_then(|history| match history.load() {
+        Ok(entries) => {
+            for entry in entries {
+                if let Err(error) = editor.add_history_entry(entry) {
+                    eprintln!("Cannot load command history entry: {error}");
+                }
+            }
+            Some(history)
+        }
+        Err(error) => {
+            eprintln!("Cannot read command history; history disabled: {error}");
+            None
+        }
+    });
     loop {
-        let todo = Text::new("").prompt().expect("");
+        let todo = match editor.readline("> ") {
+            Ok(input) => input,
+            Err(
+                rustyline::error::ReadlineError::Interrupted | rustyline::error::ReadlineError::Eof,
+            ) => {
+                pack(kognitara, &storage_paths().data);
+                break;
+            }
+            Err(error) => {
+                eprintln!("Command input failed: {error}");
+                break;
+            }
+        };
         let trimmed = todo.trim();
         if trimmed.is_empty() {
             continue;
         }
 
+        if let Some(history) = &history {
+            match history.record(trimmed) {
+                Ok(true) => {
+                    if let Err(error) = editor.add_history_entry(trimmed) {
+                        eprintln!("Cannot update command history: {error}");
+                    }
+                }
+                Ok(false) => {}
+                Err(error) => eprintln!("Cannot save command history: {error}"),
+            }
+        }
         if let Some(result) = hypothesis_command(kognitara, trimmed)
             .or_else(|| equivalence_command(kognitara, trimmed))
         {
@@ -782,6 +839,10 @@ fn interact(kognitara: &mut Kognitara) {
             show_status(kognitara);
         } else if trimmed.eq_ignore_ascii_case("oracles") {
             show_oracles(kognitara);
+        } else if trimmed.eq_ignore_ascii_case("reflections 24h") {
+            if let Err(error) = reflection_log::display(kognitara, current_timestamp(), stdout()) {
+                eprintln!("Cannot display reflections: {error}");
+            }
         } else if trimmed.eq_ignore_ascii_case("clear") || trimmed.eq_ignore_ascii_case("cls") {
             clear();
         } else if trimmed.to_lowercase().starts_with("council") {
@@ -866,6 +927,16 @@ fn pack(kognitara: &Kognitara, path: &Path) {
                         Ok(mut file) => {
                             if let Err(e) = writeln!(file, "{}", recipe_json) {
                                 ko(&format!("Disk write error: {}", e));
+                            } else if let Err(error) = file.sync_all().and_then(|_| {
+                                reflection_log::write(
+                                    kognitara,
+                                    path.parent().unwrap_or(Path::new(".")),
+                                    current_timestamp(),
+                                )
+                            }) {
+                                ko(&format!(
+                                    "Snapshot written, but sync or reflection log failed: {error}"
+                                ));
                             } else {
                                 ok(&format!(
                                     "Kōgnitara added to the registry! (Merkle Root BLAKE3: {:02x?})",
@@ -898,6 +969,12 @@ fn persist_import(kognitara: &Kognitara, path: &Path) -> Result<(), String> {
         .map_err(|e| format!("Cannot write registry: {e}"))?;
     file.sync_all()
         .map_err(|e| format!("Cannot sync registry: {e}"))?;
+    reflection_log::write(
+        kognitara,
+        path.parent().unwrap_or(Path::new(".")),
+        current_timestamp(),
+    )
+    .map_err(|e| format!("Snapshot saved, but cannot update reflection log: {e}"))?;
     Ok(())
 }
 
@@ -932,6 +1009,13 @@ fn unpack(kognitara: &mut Kognitara, path: &Path) -> bool {
             Ok(json_bytes) => match serde_json::from_slice::<Kognitara>(&json_bytes) {
                 Ok(awakened) => {
                     *kognitara = awakened;
+                    if let Err(error) = reflection_log::write(
+                        kognitara,
+                        path.parent().unwrap_or(Path::new(".")),
+                        current_timestamp(),
+                    ) {
+                        eprintln!("Registry restored, but cannot update reflection log: {error}");
+                    }
                     ok(&format!(
                         "Successful resurrection from iteration {} of the registry!",
                         lines_count
@@ -1179,6 +1263,13 @@ fn main() {
         }
     }
     relativistic_catchup_on_boot(&mut kognitara);
+    if let Err(error) = reflection_log::write(
+        &kognitara,
+        storage_paths().data.parent().unwrap_or(Path::new(".")),
+        current_timestamp(),
+    ) {
+        eprintln!("Cannot update reflection log: {error}");
+    }
 
     // 2. Ensure the terminal owner (USER) is the founder
     let current_user = ki();

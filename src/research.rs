@@ -33,12 +33,16 @@ const MAX_PENDING: usize = 100;
 struct PendingTopic {
     topic: String,
     title: String,
+    #[serde(default)]
+    failed: bool,
 }
 
 #[derive(Default, Serialize, Deserialize)]
 struct ResearchQueue {
     pending: VecDeque<PendingTopic>,
     visited: BTreeSet<String>,
+    #[serde(default)]
+    next_topic: usize,
 }
 
 fn queue_key(title: &str) -> String {
@@ -50,6 +54,59 @@ fn public_title(title: &str) -> bool {
         && title.len() <= 255
         && !title.contains(':')
         && !title.chars().any(char::is_control)
+}
+
+fn isolated_number(title: &str) -> bool {
+    let title = title.trim();
+    !title.is_empty() && title.chars().all(|c| c.is_ascii_digit())
+}
+
+fn learning_priority(mind: &Kognitara, questions: &[klm::OpenQuestion], title: &str) -> f32 {
+    if isolated_number(title) {
+        return -1.0;
+    }
+    let title = title.replace('_', " ");
+    let mut doubt: Option<f32> = None;
+    for brain in mind.swarm.brains.values() {
+        if let Some(concept) = brain.tree.resolve_exact(&title) {
+            if questions
+                .iter()
+                .any(|question| question.related_concepts.contains(&concept.id))
+            {
+                return 2.0;
+            }
+            let value = concept.epistemic_doubt();
+            doubt = Some(doubt.map_or(value, |current| current.max(value)));
+        }
+    }
+    doubt.unwrap_or(1.0)
+}
+
+fn select_pending(queue: &ResearchQueue, mind: &Kognitara) -> Option<(usize, usize)> {
+    let questions = mind.pending_questions();
+    for offset in 0..TOPICS.len() {
+        let topic_index = (queue.next_topic % TOPICS.len() + offset) % TOPICS.len();
+        let (topic, seed_title) = TOPICS[topic_index];
+        if !topic_enabled(mind, topic, seed_title) {
+            continue;
+        }
+        let mut selected: Option<(usize, bool, f32)> = None;
+        for (index, item) in queue.pending.iter().enumerate() {
+            if item.topic != topic {
+                continue;
+            }
+            let priority = learning_priority(mind, &questions, &item.title);
+            if selected.is_none_or(|(_, failed, best)| {
+                (failed && !item.failed) || (!failed && !item.failed && priority > best)
+            }) {
+                selected = Some((index, item.failed, priority));
+            }
+        }
+        if let Some((index, _, _)) = selected {
+            return Some((index, topic_index));
+        }
+    }
+    None
 }
 
 fn read_queue(directory: &Path) -> Result<Option<ResearchQueue>, String> {
@@ -90,6 +147,7 @@ fn enqueue(queue: &mut ResearchQueue, topic: &str, title: &str) {
         queue.pending.push_back(PendingTopic {
             topic: topic.to_owned(),
             title: title.to_owned(),
+            failed: false,
         });
     }
 }
@@ -356,19 +414,13 @@ fn cycle_with(
     if queue.pending.len() != pending_before {
         save_queue(directory, &queue)?;
     }
-    let Some(item) = queue.pending.front().cloned() else {
+    if queue.pending.is_empty() {
         println!("Research queue is empty.");
         return Ok(());
-    };
-    let (_, seed_title) = TOPICS
-        .iter()
-        .find(|(topic, _)| *topic == item.topic)
-        .ok_or("Research topic is no longer supported")?;
-    if !topic_enabled(&mind, &item.topic, seed_title) {
-        queue.pending.rotate_left(1);
-        save_queue(directory, &queue)?;
-        return Err(format!("Research topic '{}' is not enabled", item.topic));
     }
+    let (selected, topic_index) =
+        select_pending(&queue, &mind).ok_or("No pending research topic is currently enabled")?;
+    let item = queue.pending[selected].clone();
     let result = (|| {
         let observation = parse_summary(&item.topic, &fetch(&item.title)?)?;
         let verdict = mind
@@ -397,15 +449,39 @@ fn cycle_with(
     let related = match result {
         Ok(related) => related,
         Err(error) => {
-            queue.pending.rotate_left(1);
+            let mut failed = queue
+                .pending
+                .remove(selected)
+                .ok_or("Selected topic disappeared")?;
+            failed.failed = true;
+            queue.pending.push_back(failed);
+            queue.next_topic = (topic_index + 1) % TOPICS.len();
             save_queue(directory, &queue)?;
             return Err(error);
         }
     };
-    queue.pending.pop_front();
+    queue
+        .pending
+        .remove(selected)
+        .ok_or("Selected topic disappeared")?;
+    queue.next_topic = (topic_index + 1) % TOPICS.len();
     queue.visited.insert(queue_key(&item.title));
+    let enabled_topics = TOPICS
+        .iter()
+        .filter(|(topic, title)| topic_enabled(&mind, topic, title))
+        .count();
+    let per_topic_limit = MAX_PENDING.div_ceil(enabled_topics);
     for title in related {
-        enqueue(&mut queue, &item.topic, &title);
+        if !isolated_number(&title)
+            && queue
+                .pending
+                .iter()
+                .filter(|pending| pending.topic == item.topic)
+                .count()
+                < per_topic_limit
+        {
+            enqueue(&mut queue, &item.topic, &title);
+        }
     }
     save_queue(directory, &queue)?;
     println!(
@@ -497,6 +573,159 @@ mod tests {
         mind.harvester.filter.allow_topic("tree");
         assert!(topic_enabled(&mind, "tree", "Arbre"));
         assert_eq!(encode_path("Forêt"), "For%C3%AAt");
+    }
+
+    #[test]
+    fn learning_priority_uses_questions_and_local_knowledge() {
+        let mut mind = Kognitara::new("Test");
+        let brain = mind.swarm.brains.get_mut(&klm::NodeCoord::new(0)).unwrap();
+        let mut known = klm::Concept::new("known", "Known", "", klm::ConceptOrigin::Innate);
+        known.confidence = 0.9;
+        brain.tree.add_concept(known);
+        let questions = mind.pending_questions();
+        assert!(
+            learning_priority(&mind, &questions, "Unseen")
+                > learning_priority(&mind, &questions, "Known")
+        );
+        assert!(
+            learning_priority(&mind, &questions, "Known")
+                > learning_priority(&mind, &questions, "1787")
+        );
+
+        let brain = mind.swarm.brains.get_mut(&klm::NodeCoord::new(0)).unwrap();
+        brain
+            .learner
+            .curiosity_engine
+            .questions
+            .push(klm::OpenQuestion {
+                id: "q-test".into(),
+                related_concepts: vec![klm::ConceptId::from("known")],
+                question_text: "Unanswered".into(),
+                urgency: 0.9,
+                is_resolved: false,
+                resolution_insight: None,
+                created_at: 0,
+            });
+        let questions = mind.pending_questions();
+        assert!(
+            learning_priority(&mind, &questions, "Known")
+                > learning_priority(&mind, &questions, "Unseen")
+        );
+    }
+
+    #[test]
+    fn failed_topics_do_not_block_other_items_and_remain_retryable() {
+        let mut mind = Kognitara::new("Test");
+        mind.harvester.filter.whitelisted_topics.clear();
+        mind.harvester.filter.allow_topic("tree");
+        let mut queue = ResearchQueue::default();
+        enqueue(&mut queue, "tree", "Unknown topic");
+        enqueue(&mut queue, "tree", "1787");
+        queue.pending[0].failed = true;
+        assert_eq!(select_pending(&queue, &mind).unwrap().0, 1);
+        queue.pending[1].failed = true;
+        assert_eq!(select_pending(&queue, &mind).unwrap().0, 0);
+    }
+
+    #[test]
+    fn scheduler_preserves_old_queue_and_balances_domains() {
+        let dir = test_directory();
+        let registry = dir.join("registry");
+        let journal = dir.join("journal");
+        fs::create_dir(&journal).unwrap();
+        let mut mind = Kognitara::new("Test");
+        mind.harvester.filter.whitelisted_topics.clear();
+        for (topic, _) in TOPICS {
+            mind.harvester.filter.allow_topic(*topic);
+        }
+        let json = serde_json::to_vec(&mind).unwrap();
+        let mut snapshot = serde_json::to_vec(&klm::KpackRecipe::encode(&json)).unwrap();
+        snapshot.push(b'\n');
+        fs::write(&registry, snapshot).unwrap();
+
+        let mut pending = Vec::new();
+        for year in 1800..1889 {
+            pending.push(serde_json::json!({"topic":"medicine", "title":year.to_string()}));
+        }
+        for (topic, title) in TOPICS.iter().filter(|(topic, _)| *topic != "medicine") {
+            pending.push(serde_json::json!({"topic":topic, "title":title}));
+        }
+        fs::write(
+            journal.join("queue.state"),
+            serde_json::to_vec(&serde_json::json!({"pending":pending, "visited":[]})).unwrap(),
+        )
+        .unwrap();
+
+        cycle_with(
+            &registry,
+            &journal,
+            |title| {
+                assert_eq!(title, "Arbre");
+                Ok(summary())
+            },
+            |_| Ok(vec!["1787".into(), "Feuille".into()]),
+        )
+        .unwrap();
+        let after = read_queue(&journal).unwrap().unwrap();
+        assert_eq!(after.pending.len(), 100);
+        assert_eq!(
+            after
+                .pending
+                .iter()
+                .filter(|item| item.topic == "medicine")
+                .count(),
+            89
+        );
+        assert!(!after.pending.iter().any(|item| item.title == "1787"));
+        assert!(after.pending.iter().any(|item| item.title == "Feuille"));
+        assert_eq!(after.next_topic, 1);
+        cycle_with(
+            &registry,
+            &journal,
+            |title| {
+                assert_eq!(title, "Forêt");
+                Err("offline".into())
+            },
+            |_| unreachable!(),
+        )
+        .unwrap_err();
+        let mut after_failure = read_queue(&journal).unwrap().unwrap();
+        assert!(
+            after_failure
+                .pending
+                .iter()
+                .any(|item| item.title == "Forêt")
+        );
+        assert_eq!(after_failure.pending.len(), 100);
+        assert_eq!(after_failure.next_topic, 2);
+        after_failure.next_topic = 7;
+        save_queue(&journal, &after_failure).unwrap();
+        cycle_with(
+            &registry,
+            &journal,
+            |title| {
+                assert_eq!(title, "1800");
+                Ok(summary())
+            },
+            |_| Ok(vec!["Another medical article".into()]),
+        )
+        .unwrap();
+        let after_medicine = read_queue(&journal).unwrap().unwrap();
+        assert_eq!(
+            after_medicine
+                .pending
+                .iter()
+                .filter(|item| item.topic == "medicine")
+                .count(),
+            88
+        );
+        assert!(
+            !after_medicine
+                .pending
+                .iter()
+                .any(|item| item.title == "Another medical article")
+        );
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

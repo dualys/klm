@@ -16,6 +16,7 @@ std = [
     "dep:clap",
     "dep:indicatif",
     "dep:chrono",
+    "dep:rustyline",
 ]
 alloc = ["serde/alloc", "serde_json/alloc"]
 
@@ -37,3 +38,4 @@ crossterm = { version = "0.29.0", optional = true }
 clap = { version = "4.6.7", optional = true }
 indicatif = { version = "0.18.6", optional = true }
 chrono = { version = "0.4.45", optional = true }
+rustyline = { version = "15", default-features = false, optional = true }

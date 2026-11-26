@@ -198,6 +198,7 @@ Inside the interactive shell (`klm`), any input that is not a reserved command i
 | `inquire` / `questions` | Trigger the Socratic Inquisition menu (enforces the $\ge 72\text{ chars}$ wisdom rule) |
 | `dream`                 | Trigger a full `20-60-20` circadian dream cycle across the 8-node swarm |
 | `oracles`               | Display poetic and philosophical **Dream Oracles** synthesized during sleep |
+| `reflections 24h`       | Show saved Socratic reflections from the last 24 hours      |
 | `council [topic]`       | Convene the 5 Elders to deliberate Socratically on a topic   |
 | `man <concept>`         | Render the dynamically woven **Living Manual** Markdown page for a concept |
 | `status`                | Display Cosmic Clock (`Souffle`, `Marée`, `MusashiSeason`) and 8-node Pulsar status |
@@ -215,6 +216,21 @@ Inside the interactive shell (`klm`), any input that is not a reserved command i
 | `equiv-suggest <brain> \| <concept ID>` | Suggest unverified pairs with the same label, ignoring case and whitespace |
 | `equiv-propose <brain> \| <ID> \| <ID> \| <source> \| <reason>` | Record a possible equivalence with its origin and reason |
 | `equiv-withdraw <brain> \| <proposal ID> \| <reason>` / `equiv-reopen ...` | Withdraw or reopen a proposal without erasing its history |
+
+The interactive prompt supports Up/Down command history. It stores at most
+1,000 entries under `${XDG_STATE_HOME:-$HOME/.local/state}/klm/history`, with
+private permissions. Only a fixed set of commands without sensitive arguments
+(such as `status`, `hypotheses`, and `reflections 24h`) is recorded; free
+conversation, teachings, tags and other commands with arguments are excluded.
+`XDG_STATE_HOME`, if set, must be an absolute path. History errors are reported
+in the terminal.
+
+The private file `reflections.jsonl` in the KLM data directory is a rolling
+view of Socratic reflections from the last 24 hours, refreshed on startup and
+when a snapshot is saved. It can contain private material from conversations.
+It is a derived journal, not a separate source of truth; the reflections are
+also part of the snapshots and are included in backups. Background research
+does not create reflections until its observations are imported into KLM.
 
 Hypotheses remain unverified even when a source supports them. Corrections retain
 the evidence associated with each earlier revision. Accepted browsing traces
@@ -272,6 +288,17 @@ topics. Private conversations and question text are never sent to Wikipedia.
 Each cycle may make two requests, for a summary and its article links. The cycle
 requires `curl` and accesses French Wikipedia only; it records excerpts and
 sources, not verified facts or peer-reviewed conclusions.
+
+Its learning goal is implemented as a scheduling heuristic, not as an
+understanding of article meaning: enabled subject groups take turns; within a
+group, queued titles matching open questions are preferred, then titles not
+matched to known concepts, then those with greater recorded doubt. Titles
+consisting solely of digits are deprioritized if already queued and excluded
+from newly discovered links. New links per subject group are limited to a share
+of the 100 slots, but existing entries are retained, so an already unbalanced
+queue changes gradually. Linked titles can still be irrelevant, and knowledge
+scores and open questions are not evidence that an excerpt is true. This does
+not create new family questions on its own; the existing curiosity rules apply.
 
 The service writes observations separately under `KOGNITARA_PATH/research`
 (`/mnt/kognitara/research` by default).
