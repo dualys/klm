@@ -188,6 +188,30 @@ verified; the optional research service currently fetches French Wikipedia only.
 
 ## Interactive Sanctuary Shell & CLI Commands
 
+### Local web interface
+
+Run `klm ui`, then open the complete URL printed in the terminal. The server
+listens only on `127.0.0.1` using a random port and session token; keep the URL
+private. Stop it with Ctrl+C. This is a local interface, not an authenticated
+remote-access service; other users or programs with access to your session or
+token may be able to use it.
+
+The interface offers conversation, brain status, hypotheses with current
+sources, and reflections from the last 24 hours. Conversations are saved to the
+same registry after each message; their on-screen transcript is temporary.
+Its light or dark theme follows the browser's system color preference.
+The research and backup countdowns show the next scheduled user-systemd timer
+elapses, refreshed every 15 seconds; they do not guarantee that a run succeeds.
+Missing or unavailable timers are reported rather than estimated. The example
+USB backup script requires the registry lock, so the UI must be stopped before
+the scheduled backup can succeed.
+Close any other KLM session first because only one process can hold the
+registry lock. Research observations collected while the server is running
+are imported on the next KLM startup. Saving a conversation is not a USB backup;
+backups remain a separate operation.
+
+### Terminal interface
+
 Inside the interactive shell (`klm`), any input that is not a reserved command is treated as a natural conversation with Kōgnitara and immediately persisted to the append-only `Kpack` registry.
 
 | Command                 | Description                                                  |

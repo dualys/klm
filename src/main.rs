@@ -19,6 +19,7 @@ use std::time::Duration;
 mod command_history;
 mod reflection_log;
 mod research;
+mod web_ui;
 use inquire::validator::Validation;
 use klm::{PULSAR_PRIMES, current_timestamp};
 
@@ -73,6 +74,7 @@ fn cli() -> Command {
         .subcommand(Command::new("status").about("Display Kognitara status"))
         .subcommand(Command::new("teach").about("Teach Kognitara"))
         .subcommand(Command::new("oracles").about("Display dream oracles"))
+        .subcommand(Command::new("ui").about("Start the local web interface"))
         .subcommand(
             Command::new("research-cycle").about("Run one background Wikipedia research cycle"),
         )
@@ -871,7 +873,7 @@ fn interact(kognitara: &mut Kognitara) {
 }
 
 fn ok(message: &str) {
-    let (cols, _) = size().expect("no terminal");
+    let (cols, _) = size().unwrap_or((80, 24));
     let msg = limit_message(message);
     let padding = cols
         .saturating_sub(msg.chars().count() as u16)
@@ -887,7 +889,7 @@ fn ok(message: &str) {
 }
 
 fn ko(message: &str) {
-    let (cols, _) = size().expect("no terminal");
+    let (cols, _) = size().unwrap_or((80, 24));
     let msg = limit_message(message);
     let padding = cols
         .saturating_sub(msg.chars().count() as u16)
@@ -1048,6 +1050,12 @@ fn unpack(kognitara: &mut Kognitara, path: &Path) -> bool {
 
 fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
     match matches.subcommand() {
+        Some(("ui", _)) => {
+            if let Err(error) = web_ui::serve(kognitara, &storage_paths().data, &ki()) {
+                eprintln!("Web interface failed: {error}");
+                std::process::exit(1);
+            }
+        }
         Some(("man", sub)) => {
             let concept = sub.get_one::<String>("concept").expect("concept required");
             if let Some(page) = kognitara.render_markdown_page(concept) {

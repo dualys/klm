@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kōgnitara · Espace local</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">K</div><div><strong>Kōgnitara</strong><span>ESPACE LOCAL</span></div></div>
+      <div class="nav-label">EXPLORER</div>
+      <nav aria-label="Navigation principale">
+        <button class="nav active" data-panel="chat" aria-current="page"><span>◌</span> Conversation</button>
+        <button class="nav" data-panel="status"><span>◇</span> État des cerveaux</button>
+        <button class="nav" data-panel="hypotheses"><span>✳</span> Hypothèses <small id="nav-hypotheses">—</small></button>
+        <button class="nav" data-panel="reflections"><span>☾</span> Réflexions <small id="nav-reflections">—</small></button>
+      </nav>
+      <div class="timers" aria-label="Échéances programmées">
+        <div class="timer"><span>PROCHAINE RECHERCHE</span><strong id="research-timer">Chargement…</strong></div>
+        <div class="timer"><span>PROCHAINE SAUVEGARDE</span><strong id="backup-timer">Chargement…</strong></div>
+        <p id="timer-note" class="timer-note">Fermez KLM avant la sauvegarde : le registre est verrouillé.</p>
+      </div>
+      <div class="sidebar-foot"><span class="live-dot"></span><div><strong>Session locale</strong><small>Vos données restent ici</small></div></div>
+    </aside>
+    <main>
+      <header class="topbar"><div><span class="eyebrow">KŌGNITARA / </span><span id="top-label">CONVERSATION</span></div><div class="top-actions"><span id="connection"><i></i>Connexion…</span><button class="icon-button" id="refresh" title="Actualiser" aria-label="Actualiser">↻</button></div></header>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <section id="chat" class="panel active" aria-labelledby="chat-title">
+        <div class="heading"><div><div class="overline"><span></span> UN ESPACE POUR ÉCHANGER</div><h1 id="chat-title">Bonjour, collègue<span class="accent">.</span></h1><p>Prenez un moment pour converser avec Kōgnitara.</p></div><div class="heading-emblem">✳</div></div>
+        <div class="chat-layout">
+          <div class="chat-card">
+            <div class="card-header"><div class="avatar small">K</div><div><strong>Conversation</strong><small>Session en cours</small></div><span class="pill">LOCAL</span></div>
+            <div id="messages" class="messages" aria-live="polite">
+              <div class="welcome"><div class="welcome-icon">✳</div><h2>À quoi pensez-vous ?</h2><p>Partagez une idée, une question ou une réflexion pour commencer.</p></div>
+            </div>
+            <form id="chat-form" class="composer"><label class="sr-only" for="message">Votre message</label><textarea id="message" rows="2" maxlength="4000" placeholder="Écrivez votre message ici…" required></textarea><div class="composer-bottom"><span>Entrée pour envoyer · Maj + Entrée pour une ligne</span><button id="send" class="primary" type="submit">Envoyer <span>↗</span></button></div></form>
+          </div>
+          <div class="context"><div class="context-card"><div class="context-icon">✧</div><h3>Un espace à votre rythme</h3><p>Les réponses proviennent de la mémoire et des règles actuelles de KLM. Elles peuvent être inexactes.</p></div><div class="context-card muted"><span class="mini-label">À SAVOIR</span><h3>La mémoire évolue</h3><p>Chaque échange est enregistré dans le registre. L'affichage de cette conversation disparaît lorsque vous fermez la page.</p></div></div>
+        </div>
+      </section>
+      <section id="status" class="panel" aria-labelledby="status-title"><div class="heading"><div><div class="overline"><span></span> VUE D'ENSEMBLE</div><h1 id="status-title">L'état du système<span class="accent">.</span></h1><p>Un aperçu des cerveaux et de leur activité actuelle.</p></div></div><div id="status-summary" class="stats"></div><h2 class="section-title">Les cerveaux <span>ÉTAT ACTUEL</span></h2><div id="brains" class="brain-grid"></div></section>
+      <section id="hypotheses" class="panel" aria-labelledby="hyp-title"><div class="heading"><div><div class="overline"><span></span> PISTES À EXPLORER</div><h1 id="hyp-title">Les hypothèses<span class="accent">.</span></h1><p>Des propositions et leurs sources, à vérifier avant de les considérer comme des faits.</p></div></div><div class="warning">✧ &nbsp; Une source associée ne confirme pas automatiquement une hypothèse.</div><div id="hyp-list" class="list"></div></section>
+      <section id="reflections" class="panel" aria-labelledby="ref-title"><div class="heading"><div><div class="overline"><span></span> DERNIÈRES 24 HEURES</div><h1 id="ref-title">Les réflexions<span class="accent">.</span></h1><p>Textes générés par KLM à partir de modèles et des concepts rencontrés.</p></div></div><div id="ref-list" class="list"></div></section>
+    </main>
+  </div>
+</body>
+</html>

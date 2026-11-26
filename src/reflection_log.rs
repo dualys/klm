@@ -7,13 +7,13 @@ use std::path::Path;
 const DAY_SECONDS: i64 = 24 * 60 * 60;
 
 #[derive(Serialize)]
-struct Entry<'a> {
+pub(crate) struct Entry<'a> {
     brain: u8,
     #[serde(flatten)]
     reflection: &'a SocraticReflection,
 }
 
-fn recent(mind: &Kognitara, now: i64) -> Vec<Entry<'_>> {
+pub(crate) fn recent(mind: &Kognitara, now: i64) -> Vec<Entry<'_>> {
     let start = now.saturating_sub(DAY_SECONDS);
     let mut entries = Vec::new();
     for (coord, brain) in &mind.swarm.brains {
