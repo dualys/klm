@@ -41,10 +41,12 @@ impl TestServer {
         fs::create_dir(&bin).unwrap();
         fs::write(
             bin.join("systemctl"),
-            "#!/bin/sh\nprintf '%s\\n' '[{\"unit\":\"klm-research.timer\",\"next\":1795718400000000},{\"unit\":\"klm-backup.timer\",\"next\":1795731378234069}]'\n",
+            "#!/bin/sh\nif [ \"$2\" = show ]; then\nprintf 'Id=klm-research.service\\nActiveState=active\\nSubState=running\\nResult=success\\n\\nId=klm-backup.service\\nActiveState=failed\\nSubState=failed\\nResult=exit-code\\n'\nelse\nprintf '%s\\n' '[{\"unit\":\"klm-research.timer\",\"next\":1795718400000000},{\"unit\":\"klm-backup.timer\",\"next\":1795731378234069}]'\nfi\n",
         )
         .unwrap();
         fs::set_permissions(bin.join("systemctl"), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(bin.join("journalctl"), "#!/bin/sh\nprintf '%s\\n' '{\"USER_UNIT\":\"klm-backup.service\",\"MESSAGE\":\"Backup failed\",\"PRIORITY\":\"3\",\"__REALTIME_TIMESTAMP\":\"1234000\"}'\n").unwrap();
+        fs::set_permissions(bin.join("journalctl"), fs::Permissions::from_mode(0o700)).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_klm"))
             .arg("ui")
             .env("KOGNITARA_PATH", &dir)
@@ -78,7 +80,151 @@ impl TestServer {
             token: token.to_string(),
         }
     }
+}
 
+#[test]
+fn dashboard_lists_real_associations_and_recorded_night() {
+    let server = TestServer::start_with_setup(|dir| {
+        let mut mind = klm::Kognitara::new("Test");
+        let id = klm::ConceptId("fiche-cible".into());
+        let brain = mind.swarm.brains.get_mut(&klm::NodeCoord(6)).unwrap();
+        for i in 0..101 {
+            let concept_id = if i == 0 {
+                id.clone()
+            } else {
+                klm::ConceptId(format!("fiche-{i}"))
+            };
+            brain.tree.add_concept(klm::Concept::new(
+                concept_id,
+                format!("fiche_cible {i}"),
+                "Description",
+                klm::ConceptOrigin::HarvestedSeed {
+                    source_domain: "example.org".into(),
+                },
+            ));
+        }
+        brain
+            .learner
+            .curiosity_engine
+            .questions
+            .push(klm::OpenQuestion {
+                id: "q1".into(),
+                related_concepts: vec![id.clone()],
+                question_text: "Question liée ?".into(),
+                urgency: 0.5,
+                is_resolved: false,
+                resolution_insight: None,
+                created_at: 1,
+            });
+        let linked = mind.hypotheses.add("Liée", vec![id]).unwrap();
+        mind.hypotheses
+            .get_mut(linked)
+            .unwrap()
+            .add_evidence(
+                klm::EvidenceRelation::Reports,
+                "https://example.org/source",
+                "note",
+                1,
+            )
+            .unwrap();
+        let unlinked = mind.hypotheses.add("Non liée", vec![]).unwrap();
+        mind.hypotheses
+            .get_mut(unlinked)
+            .unwrap()
+            .add_evidence(
+                klm::EvidenceRelation::Reports,
+                "https://example.org/unrelated",
+                "note",
+                1,
+            )
+            .unwrap();
+        let mut snapshot = serde_json::to_vec(&klm::KpackRecipe::encode(
+            &serde_json::to_vec(&mind).unwrap(),
+        ))
+        .unwrap();
+        snapshot.push(b'\n');
+        fs::write(dir.join("data"), snapshot).unwrap();
+        let research = dir.join("research");
+        fs::create_dir(&research).unwrap();
+        let subjects: serde_json::Map<String, serde_json::Value> = (0..70).map(|i|
+                (format!("subject-{i}"), serde_json::json!({"label":format!("Sujet {i}"), "kind":"Concept", "contradictions": if i == 0 { vec!["Lien signalé"] } else { vec![] }}))
+            ).collect();
+        fs::write(research.join("night-review.state"), serde_json::to_vec(&serde_json::json!({
+                "concept_cursor":null, "hypothesis_cursor":null, "concept_examinations":70,
+                "hypothesis_examinations":2, "last_run":100, "last_request":null,
+                "concepts":[], "hypotheses":{},
+                "summaries":{"2026-11-27":{"cycles":4,"concept_examinations":70,"hypothesis_examinations":2,"last_run":100,"subjects":subjects}}
+            })).unwrap()).unwrap();
+    });
+    let auth = format!("Authorization: Bearer {}\r\n", server.token);
+    for path in ["/api/knowledge", "/api/morning", "/api/activity"] {
+        assert_eq!(server.request("GET", path, &server.address, "", "").0, 401);
+    }
+    let (status, body) = server.request(
+        "GET",
+        "/api/knowledge?q=FICHE_CIBLE",
+        &server.address,
+        &auth,
+        "",
+    );
+    assert_eq!(status, 200);
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["total"], 101);
+    assert_eq!(data["items"].as_array().unwrap().len(), 50);
+    let (_, body) = server.request(
+        "GET",
+        "/api/knowledge?q=Question+li%C3%A9e",
+        &server.address,
+        &auth,
+        "",
+    );
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["total"], 1);
+    let item = &data["items"][0];
+    assert_eq!(item["source_domain"], "example.org");
+    assert_eq!(item["questions"][0], "Question liée ?");
+    assert_eq!(item["sources"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        item["sources"][0]["evidence"]["source"],
+        "https://example.org/source"
+    );
+    let (_, body) = server.request("GET", "/api/morning?page=2", &server.address, &auth, "");
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["summary"]["cycles"], 4);
+    assert_eq!(data["summary"]["flagged"], 1);
+    assert_eq!(data["items"].as_array().unwrap().len(), 20);
+    let (_, body) = server.request(
+        "GET",
+        "/api/morning?q=lien+signal%C3%A9",
+        &server.address,
+        &auth,
+        "",
+    );
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["total"], 1);
+    let (status, body) = server.request("GET", "/api/activity", &server.address, &auth, "");
+    assert_eq!(status, 200);
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["services"][0]["active"], "active");
+    assert_eq!(data["services"][1]["result"], "exit-code");
+    assert_eq!(data["events"][0]["status"], "error");
+    fs::write(
+        server.dir.join("bin/journalctl"),
+        "#!/bin/sh\necho 'journal indisponible' >&2\nexit 1\n",
+    )
+    .unwrap();
+    let (status, body) = server.request("GET", "/api/activity", &server.address, &auth, "");
+    assert_eq!(status, 503);
+    assert!(body.contains("journal indisponible"));
+    assert_eq!(
+        server
+            .request("GET", "/api/knowledge?q=x", &server.address, &auth, "")
+            .0,
+        200
+    );
+}
+
+impl TestServer {
     fn request(
         &self,
         method: &str,

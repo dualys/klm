@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::thread::sleep;
 use std::time::Duration;
+mod activity;
 mod command_history;
 mod night_review;
 mod reflection_log;

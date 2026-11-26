@@ -47,6 +47,7 @@ function updateTimers() {
       node.textContent = "Indisponible";
       continue;
     }
+    $("#home-next").textContent = $("#research-timer").textContent;
     const timer = timerState[key];
     if (timer.status === "missing") {
       node.textContent = "Minuteur introuvable";
@@ -183,10 +184,53 @@ function nightNode(item) {
     return node;
 }
 
+function knowledgeNode(item) {
+  const node = element("article", undefined, "entry");
+  node.append(element("span", `CERVEAU ${item.brain} · CONNAISSANCE`, "entry-meta"),
+    element("h3", item.label), element("p", item.description || "Aucune description."));
+  if (item.source_domain) node.append(element("p", `Domaine d'origine déclaré : ${item.source_domain} (provenance non vérifiée).`));
+  node.append(element("p", item.questions.length ? "Questions ouvertes liées :" : "Aucune question ouverte liée."));
+  for (const question of item.questions) node.append(element("p", question));
+  node.append(element("p", item.sources.length ? "Sources des hypothèses explicitement liées :" : "Aucune source associée explicitement."));
+  for (const source of item.sources) {
+    const row = element("p", `Hypothèse #${source.hypothesis_id} · ${source.evidence.relation} · ${source.evidence.source}`);
+    node.append(row);
+  }
+  return node;
+}
+
+function morningNode(item) {
+  const node = element("article", undefined, "entry");
+  node.append(element("span", item.kind, "entry-meta"), element("h3", item.label));
+  if (!item.contradictions.length) node.append(element("p", "Aucune contradiction enregistrée lors des passages."));
+  for (const contradiction of item.contradictions) node.append(element("p", `Contradiction enregistrée : ${contradiction}`));
+  return node;
+}
+
+function renderMorning(summary) {
+  const container = $("#morning-summary");
+  if (!summary) {
+    container.replaceChildren(element("div", "Aucun bilan enregistré depuis l'activation de cette fonctionnalité.", "empty"));
+    return;
+  }
+  const status = summary.ongoing ? "Période en cours" : "Période terminée";
+  container.replaceChildren(
+    stat("Date · période", `${summary.date} · ${status}`),
+    stat("Passages enregistrés", summary.cycles),
+    stat("Sujets distincts", summary.subjects),
+    stat("Examens de concepts", summary.concept_examinations),
+    stat("Examens d'hypothèses", summary.hypothesis_examinations),
+    stat("Sujets avec contradiction", summary.flagged),
+    element("p", `Dernier passage : ${new Date(summary.last_run * 1000).toLocaleString("fr-FR")}. Le bilan peut être partiel si des passages ont été manqués.`, "summary-note")
+  );
+}
+
 const lists = [
   {prefix: "hyp", endpoint: "hypotheses", render: hypothesisNode, empty: "Aucune hypothèse enregistrée."},
   {prefix: "ref", endpoint: "reflections", render: reflectionNode, empty: "Aucune réflexion pendant les dernières 24 heures."},
   {prefix: "night", endpoint: "night", render: nightNode, empty: "Aucun examen nocturne enregistré."},
+  {prefix: "knowledge", endpoint: "knowledge", render: knowledgeNode, empty: "Aucune connaissance enregistrée."},
+  {prefix: "morning", endpoint: "morning", render: morningNode, empty: "Aucun sujet dans le dernier bilan."},
 ].map((list) => ({...list, page: 1, displayedPage: 1, pages: 1, sequence: 0, debounce: null}));
 
 async function loadList(list) {
@@ -207,6 +251,7 @@ async function loadList(list) {
     throw error;
   }
   if (sequence !== list.sequence) return;
+  if (list.endpoint === "morning") renderMorning(result.summary);
   list.page = result.page;
   list.displayedPage = result.page;
   list.pages = result.pages;
@@ -216,6 +261,53 @@ async function loadList(list) {
   controls.querySelector("span").textContent = `${result.total} résultat(s) · Page ${result.page} sur ${result.pages}`;
   controls.querySelector(".previous").disabled = result.page <= 1;
   controls.querySelector(".next").disabled = result.page >= result.pages;
+}
+
+let activityRefreshRunning = false;
+function serviceState(service) {
+  if (service.active === "active") return "En cours";
+  if (service.active === "inactive") return "Inactif";
+  if (service.active === "failed") return "En échec";
+  return `${service.active} · ${service.substate}`;
+}
+async function refreshActivity() {
+  if (activityRefreshRunning) return;
+  activityRefreshRunning = true;
+  const errorNode = $("#activity-error");
+  try {
+    const activity = await api("/api/activity");
+    const research = activity.services.find((service) => service.id === "klm-research.service");
+    const backup = activity.services.find((service) => service.id === "klm-backup.service");
+    if (!research || !backup || !["day", "night"].includes(activity.mode) || !Array.isArray(activity.events)) {
+      throw new Error("Données d'activité invalides.");
+    }
+    $("#home-mode").textContent = activity.mode === "night" ? "Examen nocturne" : "Recherches de jour";
+    $("#home-mode-note").textContent = activity.mode === "night"
+      ? "Période prévue de minuit à 8 h, sur le dernier snapshot sauvegardé."
+      : "Période prévue de 8 h à minuit. Les recherches sont importées au redémarrage de KLM.";
+    $("#home-research").textContent = serviceState(research);
+    $("#home-backup").textContent = serviceState(backup);
+    const labels = {error: "ERREUR", warning: "AVERTISSEMENT", started: "DÉMARRAGE", finished: "TERMINÉ", info: "INFORMATION"};
+    const rows = activity.events.map((event) => {
+      const node = element("article", undefined, "entry");
+      const service = event.unit === "klm-backup.service" ? "SAUVEGARDE" : "RECHERCHE / EXAMEN";
+      node.append(element("span", `${new Date(event.timestamp_ms).toLocaleString("fr-FR")} · ${service} · ${labels[event.status] || event.status}`, "entry-meta"),
+        element("p", event.message));
+      return node;
+    });
+    $("#activity-list").replaceChildren(...(rows.length ? rows : [element("div", "Aucun événement trouvé.", "empty")]));
+    errorNode.hidden = true;
+  } catch (error) {
+    $("#home-mode").textContent = "Indisponible";
+    $("#home-mode-note").textContent = `Impossible de lire l'activité : ${error.message}`;
+    $("#home-research").textContent = "Indisponible";
+    $("#home-backup").textContent = "Indisponible";
+    errorNode.textContent = `Journal indisponible : ${error.message}`;
+    errorNode.hidden = false;
+    $("#activity-list").replaceChildren();
+  } finally {
+    activityRefreshRunning = false;
+  }
 }
 
 for (const list of lists) {
@@ -252,7 +344,7 @@ document.querySelectorAll(".nav").forEach((button) => button.addEventListener("c
   document.querySelectorAll(".panel").forEach((panel) => panel.classList.toggle("active", panel.id === button.dataset.panel));
   $("#top-label").textContent = button.textContent.trim().replace(/\s+\d+$/, "").toUpperCase();
 }));
-$("#refresh").addEventListener("click", () => { refresh(); refreshTimers(); });
+$("#refresh").addEventListener("click", () => { refresh(); refreshTimers(); refreshActivity(); });
 $("#message").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
@@ -288,5 +380,7 @@ $("#chat-form").addEventListener("submit", async (event) => {
 });
 refresh();
 refreshTimers();
+refreshActivity();
 setInterval(updateTimers, 1000);
 setInterval(refreshTimers, 15000);
+setInterval(refreshActivity, 30000);

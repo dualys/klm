@@ -1,4 +1,4 @@
-use crate::{night_review, persist_import, reflection_log, web_lists};
+use crate::{activity, night_review, persist_import, reflection_log, web_lists};
 use klm::{Kognitara, current_timestamp, family::MemberId};
 use serde::Deserialize;
 use serde_json::json;
@@ -131,7 +131,8 @@ fn handle(
         ),
         (
             &Method::Get,
-            "/api/state" | "/api/timers" | "/api/hypotheses" | "/api/reflections" | "/api/night",
+            "/api/state" | "/api/timers" | "/api/hypotheses" | "/api/reflections" | "/api/night"
+            | "/api/knowledge" | "/api/morning" | "/api/activity",
         )
         | (&Method::Post, "/api/chat") => {
             if header(&request, "Authorization") != Some(format!("Bearer {token}").as_str()) {
@@ -154,7 +155,29 @@ fn handle(
                     }
                     return;
                 }
-                if matches!(path, "/api/hypotheses" | "/api/reflections" | "/api/night") {
+                if path == "/api/activity" {
+                    match activity::read() {
+                        Ok(data) => reply(
+                            request,
+                            200,
+                            "application/json; charset=utf-8",
+                            data.to_string(),
+                        ),
+                        Err(activity_error) => {
+                            eprintln!("Cannot read activity: {activity_error}");
+                            error(request, 503, &activity_error);
+                        }
+                    }
+                    return;
+                }
+                if matches!(
+                    path,
+                    "/api/hypotheses"
+                        | "/api/reflections"
+                        | "/api/night"
+                        | "/api/knowledge"
+                        | "/api/morning"
+                ) {
                     let review_dir = data.parent().unwrap_or(Path::new(".")).join("research");
                     match web_lists::page(mind, &review_dir, path, query) {
                         Ok(page) => reply(

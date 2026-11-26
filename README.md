@@ -197,9 +197,30 @@ remote-access service; other users or programs with access to your session or
 token may be able to use it.
 
 The interface offers conversation, brain status, hypotheses with current
-sources, and reflections from the last 24 hours. Conversations are saved to the
+sources, and reflections from the last 24 hours. The home page distinguishes
+the scheduled day/night mode from the actual research and backup service states.
+The activity journal displays the latest 50 local systemd messages for those
+services, including errors; status and journal refresh every 30 seconds.
+Unavailable services or journal data are reported explicitly. Journal messages
+may contain private information and remain local.
+Use the refresh button to reload the knowledge cards and morning report.
+
+Knowledge cards show each brain's concepts, their descriptions, a declared
+harvest domain when present, pending questions linked by concept ID, and
+current-revision sources only from hypotheses explicitly linked to that ID.
+Neither a declared origin, a source, nor a recorded contradiction verifies a
+fact. The morning report shows the most recent date for which nocturnal
+examinations were actually recorded, with separate counts for passages and
+examinations, distinct subjects and registered contradictions. It can be
+partial if scheduled passages were missed, and does not reconstruct reports
+from historical totals. Reports are retained by date in the night-review
+state without automatic deletion; that file grows as more subjects and nights
+are recorded.
+
+Conversations are saved to the
 same registry after each message; their on-screen transcript is temporary.
-Hypotheses, 24-hour reflections and night reviews each have a local,
+Hypotheses, 24-hour reflections, night reviews, knowledge cards and morning
+report subjects each have a local,
 case-insensitive text search and server-side pages of at most 50 entries.
 The search operates on the KLM records shown by the interface; it does not use
 the Jinshu index or query the internet.
@@ -211,7 +232,8 @@ USB backup script requires the registry lock, so the UI must be stopped before
 the scheduled backup can succeed.
 Close any other KLM session first because only one process can hold the
 registry lock. Research observations collected while the server is running
-are imported on the next KLM startup. Saving a conversation is not a USB backup;
+are imported on the next KLM startup. Night reviews examine the last saved
+snapshot, not unsaved changes. Saving a conversation is not a USB backup;
 backups remain a separate operation.
 
 ### Terminal interface

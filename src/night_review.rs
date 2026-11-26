@@ -21,6 +21,39 @@ pub(crate) struct ReviewState {
     last_request: Option<i64>,
     pub concepts: Vec<ConceptReview>,
     pub hypotheses: BTreeMap<String, HypothesisReview>,
+    #[serde(default)]
+    pub summaries: BTreeMap<String, NightSummary>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub(crate) struct NightSummary {
+    pub cycles: u64,
+    pub concept_examinations: u64,
+    pub hypothesis_examinations: u64,
+    pub last_run: i64,
+    pub subjects: BTreeMap<String, NightSubject>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct NightSubject {
+    pub label: String,
+    pub kind: String,
+    pub contradictions: Vec<String>,
+}
+
+fn record_subject(summary: &mut NightSummary, key: String, subject: NightSubject) {
+    match summary.subjects.get_mut(&key) {
+        Some(existing) => {
+            for contradiction in subject.contradictions {
+                if !existing.contradictions.contains(&contradiction) {
+                    existing.contradictions.push(contradiction);
+                }
+            }
+        }
+        None => {
+            summary.subjects.insert(key, subject);
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -90,6 +123,7 @@ fn examine(
     mind: &Kognitara,
     state: &mut ReviewState,
     now: i64,
+    date: &str,
 ) -> Option<(u64, usize, &'static str, &'static str)> {
     let mut concepts = Vec::new();
     for (coord, brain) in &mind.swarm.brains {
@@ -99,12 +133,18 @@ fn examine(
     }
     concepts.sort();
     let selected = batch(&concepts, &state.concept_cursor, CONCEPTS_PER_CYCLE);
+    let summary = state.summaries.entry(date.to_string()).or_default();
+    summary.cycles = summary.cycles.saturating_add(1);
+    summary.last_run = now;
+    summary.concept_examinations = summary
+        .concept_examinations
+        .saturating_add(selected.len() as u64);
     state.concepts.clear();
     for (brain_id, concept_id) in &selected {
         let brain = &mind.swarm.brains[&klm::NodeCoord(*brain_id)];
         let id = klm::ConceptId(concept_id.clone());
         let concept = &brain.tree.concepts[&id];
-        let contradictions = brain
+        let contradictions: Vec<String> = brain
             .tree
             .edges
             .iter()
@@ -125,6 +165,15 @@ fn examine(
                     .map(|other| other.label.clone())
             })
             .collect();
+        record_subject(
+            summary,
+            format!("concept:{brain_id}:{concept_id}"),
+            NightSubject {
+                label: concept.label.clone(),
+                kind: format!("Cerveau {brain_id}"),
+                contradictions: contradictions.clone(),
+            },
+        );
         state.concepts.push(ConceptReview {
             brain: *brain_id,
             label: concept.label.clone(),
@@ -150,6 +199,9 @@ fn examine(
         .collect();
     ids.sort_unstable();
     let selected = batch(&ids, &state.hypothesis_cursor, HYPOTHESES_PER_CYCLE);
+    summary.hypothesis_examinations = summary
+        .hypothesis_examinations
+        .saturating_add(selected.len() as u64);
     let mut target = None;
     for id in &selected {
         let hypothesis = mind
@@ -189,6 +241,25 @@ fn examine(
             .as_ref()
             .map_or(1, |review| review.examinations.saturating_add(1));
         let wikipedia = previous.and_then(|review| review.wikipedia);
+        let contradicts = evidence
+            .iter()
+            .filter(|e| e.relation == EvidenceRelation::Contradicts)
+            .count();
+        let mut findings = contradictions.clone();
+        if contradicts > 0 {
+            findings.push(format!(
+                "{contradicts} source(s) enregistrée(s) comme contradictoires"
+            ));
+        }
+        record_subject(
+            summary,
+            key.clone(),
+            NightSubject {
+                label: hypothesis.statement.clone(),
+                kind: format!("Hypothèse #{id} · révision {revision}"),
+                contradictions: findings,
+            },
+        );
         state.hypotheses.insert(
             key,
             HypothesisReview {
@@ -205,10 +276,7 @@ fn examine(
                     .iter()
                     .filter(|e| e.relation == EvidenceRelation::Supports)
                     .count(),
-                contradicts: evidence
-                    .iter()
-                    .filter(|e| e.relation == EvidenceRelation::Contradicts)
-                    .count(),
+                contradicts,
                 contradictions,
                 questions: vec![
                     "Quelles sources rapportent cette proposition et que disent-elles ?".into(),
@@ -273,7 +341,8 @@ fn cycle_at<T: chrono::TimeZone>(
     let mind = research::latest_snapshot(registry)?;
     let mut state = read(directory)?.unwrap_or_default();
     let timestamp = now.timestamp();
-    let target = examine(&mind, &mut state, timestamp);
+    let date = now.date_naive().to_string();
+    let target = examine(&mind, &mut state, timestamp, &date);
     save(directory, &state)?;
     if let Some((id, revision, topic, title)) = target {
         if state
@@ -343,14 +412,40 @@ mod tests {
             .add_evidence(EvidenceRelation::Contradicts, "source", "note", 1)
             .unwrap();
         let mut state = ReviewState::default();
-        assert!(examine(&mind, &mut state, 10).is_none());
-        examine(&mind, &mut state, 20);
+        assert!(examine(&mind, &mut state, 10, "2026-11-27").is_none());
+        examine(&mind, &mut state, 20, "2026-11-27");
         let review = &state.hypotheses[&format!("{id}:0")];
         assert_eq!(review.examinations, 2);
         assert_eq!(review.contradicts, 1);
         assert_eq!(mind.hypotheses.hypotheses[0].revision(), 0);
         assert_eq!(mind.hypotheses.hypotheses[0].statement, "Une affirmation");
         assert!(state.concept_examinations > 0);
+        let summary = &state.summaries["2026-11-27"];
+        assert_eq!(summary.cycles, 2);
+        assert_eq!(summary.hypothesis_examinations, 2);
+        assert_eq!(summary.subjects[&format!("{id}:0")].contradictions.len(), 1);
+        mind.hypotheses.get_mut(id).unwrap().evidence.clear();
+        examine(&mind, &mut state, 30, "2026-11-27");
+        examine(&mind, &mut state, 40, "2026-11-28");
+        assert_eq!(state.summaries["2026-11-27"].cycles, 3);
+        assert_eq!(
+            state.summaries["2026-11-27"].subjects[&format!("{id}:0")]
+                .contradictions
+                .len(),
+            1
+        );
+        assert_eq!(state.summaries["2026-11-28"].cycles, 1);
+        assert!(
+            state.summaries["2026-11-28"].subjects[&format!("{id}:0")]
+                .contradictions
+                .is_empty()
+        );
+
+        let mut old = serde_json::to_value(&state).unwrap();
+        old.as_object_mut().unwrap().remove("summaries");
+        let restored: ReviewState = serde_json::from_value(old).unwrap();
+        assert!(restored.summaries.is_empty());
+        assert_eq!(restored.hypothesis_examinations, 4);
     }
 
     #[test]
@@ -367,7 +462,7 @@ mod tests {
                 0,
             )
             .unwrap();
-        assert!(examine(&mind, &mut ReviewState::default(), 0).is_none());
+        assert!(examine(&mind, &mut ReviewState::default(), 0, "2026-11-27").is_none());
         mind.hypotheses
             .get_mut(id)
             .unwrap()
@@ -379,7 +474,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            examine(&mind, &mut ReviewState::default(), 0),
+            examine(&mind, &mut ReviewState::default(), 0, "2026-11-27"),
             Some((id, 0, "tree", "Arbre"))
         );
     }
@@ -425,6 +520,10 @@ mod tests {
         );
         assert_eq!(
             read(&journal).unwrap().unwrap().hypotheses[&format!("{id}:0")].examinations,
+            1
+        );
+        assert_eq!(
+            read(&journal).unwrap().unwrap().summaries["2026-11-27"].cycles,
             1
         );
         cycle_at(

@@ -78,13 +78,34 @@ fn matches(text: &str, query: &str) -> bool {
     query.is_empty() || text.to_lowercase().contains(query)
 }
 
-fn paginated<T: Serialize>(items: &[T], requested: usize) -> Value {
-    let total = items.len();
+fn page_bounds(total: usize, requested: usize) -> (usize, usize, usize, usize) {
     let pages = total.div_ceil(PAGE_SIZE).max(1);
     let page = requested.min(pages);
     let start = (page - 1) * PAGE_SIZE;
     let end = (start + PAGE_SIZE).min(total);
+    (page, pages, start, end)
+}
+
+fn paginated<T: Serialize>(items: &[T], requested: usize) -> Value {
+    let total = items.len();
+    let (page, pages, start, end) = page_bounds(total, requested);
     json!({ "page": page, "pages": pages, "total": total, "items": &items[start..end] })
+}
+
+#[derive(Serialize)]
+struct KnowledgeSource<'a> {
+    hypothesis_id: u64,
+    evidence: &'a klm::Evidence,
+}
+
+#[derive(Serialize)]
+struct KnowledgeItem<'a> {
+    brain: u8,
+    label: &'a str,
+    description: &'a str,
+    source_domain: Option<&'a str>,
+    questions: Vec<&'a str>,
+    sources: Vec<KnowledgeSource<'a>>,
 }
 
 #[derive(Serialize)]
@@ -108,7 +129,7 @@ pub(crate) fn page(
     raw_query: &str,
 ) -> Result<Value, (u16, String)> {
     let query = parse_query(raw_query).map_err(|error| (400, error))?;
-    let night = if path != "/api/reflections" {
+    let night = if matches!(path, "/api/hypotheses" | "/api/night" | "/api/morning") {
         night_review::read(directory).map_err(|error| (503, error))?
     } else {
         None
@@ -192,6 +213,105 @@ pub(crate) fn page(
                 }
             }
             Ok(paginated(&items, query.page))
+        }
+        "/api/morning" => {
+            let latest = night
+                .as_ref()
+                .and_then(|state| state.summaries.last_key_value());
+            let mut result = if let Some((date, summary)) = latest {
+                let now = chrono::Local::now();
+                let subjects: Vec<_> = summary
+                    .subjects
+                    .values()
+                    .filter(|subject| {
+                        matches(&subject.label, &query.text)
+                            || matches(&subject.kind, &query.text)
+                            || subject
+                                .contradictions
+                                .iter()
+                                .any(|entry| matches(entry, &query.text))
+                    })
+                    .collect();
+                let mut result = paginated(&subjects, query.page);
+                result["summary"] = json!({
+                    "date": date,
+                    "cycles": summary.cycles,
+                    "concept_examinations": summary.concept_examinations,
+                    "hypothesis_examinations": summary.hypothesis_examinations,
+                    "last_run": summary.last_run,
+                    "ongoing": *date == now.date_naive().to_string()
+                        && night_review::is_night(now),
+                    "subjects": summary.subjects.len(),
+                    "flagged": summary.subjects.values().filter(|subject| !subject.contradictions.is_empty()).count(),
+                });
+                result
+            } else {
+                paginated::<u8>(&[], query.page)
+            };
+            if latest.is_none() {
+                result["summary"] = Value::Null;
+            }
+            Ok(result)
+        }
+        "/api/knowledge" => {
+            let mut concepts = Vec::new();
+            for (coord, brain) in &mind.swarm.brains {
+                for concept in brain.tree.concepts.values() {
+                    if matches(&concept.label, &query.text)
+                        || matches(&concept.description, &query.text)
+                        || brain.learner.pending_questions().iter().any(|q| {
+                            q.related_concepts.contains(&concept.id)
+                                && matches(&q.question_text, &query.text)
+                        })
+                    {
+                        concepts.push((coord.0, brain, concept));
+                    }
+                }
+            }
+            let total = concepts.len();
+            let (page, pages, start, end) = page_bounds(total, query.page);
+            let items: Vec<_> = concepts[start..end]
+                .iter()
+                .map(|(coord, brain, concept)| {
+                    let sources = mind
+                        .hypotheses
+                        .hypotheses
+                        .iter()
+                        .filter(|h| h.related_concepts.contains(&concept.id))
+                        .flat_map(|h| {
+                            h.evidence
+                                .iter()
+                                .filter(move |e| e.revision == h.revision())
+                                .map(move |evidence| KnowledgeSource {
+                                    hypothesis_id: h.id,
+                                    evidence,
+                                })
+                        })
+                        .collect();
+                    let questions = brain
+                        .learner
+                        .pending_questions()
+                        .into_iter()
+                        .filter(|q| q.related_concepts.contains(&concept.id))
+                        .map(|q| q.question_text.as_str())
+                        .collect();
+                    let source_domain = match &concept.origin {
+                        klm::ConceptOrigin::HarvestedSeed { source_domain } => {
+                            Some(source_domain.as_str())
+                        }
+                        _ => None,
+                    };
+                    KnowledgeItem {
+                        brain: *coord,
+                        label: &concept.label,
+                        description: &concept.description,
+                        source_domain,
+                        questions,
+                        sources,
+                    }
+                })
+                .collect();
+            Ok(json!({ "page": page, "pages": pages, "total": total, "items": items }))
         }
         _ => Err((404, "Not found".into())),
     }

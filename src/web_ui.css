@@ -29,13 +29,14 @@ button {
   padding:30px 18px;
   position:fixed;
   inset:0 auto 0 0;
+  overflow-y:auto;
 }
 .brand {
   display:flex;
   align-items:center;
   gap:12px;
   padding:0 6px;
-  margin-bottom:67px;
+  margin-bottom:35px;
 }
 .brand-mark,.avatar {
   display:grid;
@@ -79,7 +80,7 @@ nav {
   background:transparent;
   color:#718079;
   border-radius:9px;
-  padding:13px 12px;
+  padding:10px 12px;
   text-align:left;
   font-size:13px;
   font-weight:600;
@@ -248,7 +249,7 @@ h1 {
   grid-template-columns:minmax(0,1fr) 250px;
   gap:23px;
 }
-.chat-card,.context-card,.stat,.brain,.entry {
+.chat-card,.context-card,.stat,.brain,.entry,.dashboard-card {
   background:#fff;
   border:1px solid #e8ede6;
   border-radius:14px;
@@ -432,6 +433,29 @@ h1 {
   grid-template-columns:repeat(3,1fr);
   gap:16px;
 }
+.dashboard {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:16px;
+  margin-bottom:20px;
+}
+.dashboard-card {
+  padding:24px;
+}
+.dashboard-card h2 {
+  font-family:Georgia,serif;
+  font-size:22px;
+  font-weight:400;
+  color:#45604e;
+}
+.dashboard-card p,.summary-note {
+  color:#75867a;
+  font-size:13px;
+  line-height:1.6;
+}
+.summary-note {
+  grid-column:1 / -1;
+}
 .stat {
   padding:22px;
 }
@@ -588,7 +612,7 @@ h1 {
     background:#111;
     font-family:Cantarell,system-ui,sans-serif;
   }
-  .sidebar,.chat-card,.context-card,.stat,.brain,.entry,.empty {
+  .sidebar,.chat-card,.context-card,.stat,.brain,.entry,.empty,.dashboard-card {
     background:#202020;
     border-color:#414141;
     box-shadow:0 7px 30px rgba(0,0,0,.15);
@@ -648,7 +672,7 @@ h1 {
   .overline span {
     background:#a0a0a0;
   }
-  h1,.welcome h2,.context-card h3,.stat strong,.entry h3 {
+  h1,.welcome h2,.context-card h3,.stat strong,.entry h3,.dashboard-card h2 {
     color:#f2f2f2;
   }
   .brand strong,.brand-mark,.avatar,h1,.welcome h2,.context-card h3,
@@ -658,7 +682,7 @@ h1 {
   .accent,.heading-emblem {
     color:#bcbcbc;
   }
-  .heading p,.welcome p,.context-card p,.brain p,.entry p,.entry li,.empty {
+  .heading p,.welcome p,.context-card p,.brain p,.entry p,.entry li,.empty,.dashboard-card p,.summary-note {
     color:#d0d0d0;
   }
   .pill,.brain .phase,.welcome-icon {
@@ -793,6 +817,9 @@ h1 {
   }
   .stats {
     grid-template-columns:1fr 1fr;
+  }
+  .dashboard {
+    grid-template-columns:1fr;
   }
   .brain-grid {
     grid-template-columns:1fr 1fr;

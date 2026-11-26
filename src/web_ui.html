@@ -13,11 +13,15 @@
       <div class="brand"><div class="brand-mark">K</div><div><strong>Kōgnitara</strong><span>ESPACE LOCAL</span></div></div>
       <div class="nav-label">EXPLORER</div>
       <nav aria-label="Navigation principale">
-        <button class="nav active" data-panel="chat" aria-current="page"><span>◌</span> Conversation</button>
+        <button class="nav active" data-panel="home" aria-current="page"><span>◉</span> Accueil</button>
+        <button class="nav" data-panel="chat"><span>◌</span> Conversation</button>
         <button class="nav" data-panel="status"><span>◇</span> État des cerveaux</button>
+        <button class="nav" data-panel="knowledge"><span>✧</span> Connaissances</button>
         <button class="nav" data-panel="hypotheses"><span>✳</span> Hypothèses <small id="nav-hypotheses">—</small></button>
         <button class="nav" data-panel="reflections"><span>☾</span> Réflexions <small id="nav-reflections">—</small></button>
         <button class="nav" data-panel="night"><span>☾</span> Examen nocturne</button>
+        <button class="nav" data-panel="morning"><span>☀</span> Bilan du matin</button>
+        <button class="nav" data-panel="activity"><span>≡</span> Journal d'activité</button>
       </nav>
       <div class="timers" aria-label="Échéances programmées">
         <div class="timer"><span>PROCHAINE ÉTAPE</span><strong id="research-timer">Chargement…</strong></div>
@@ -27,9 +31,18 @@
       <div class="sidebar-foot"><span class="live-dot"></span><div><strong>Session locale</strong><small>Vos données restent ici</small></div></div>
     </aside>
     <main>
-      <header class="topbar"><div><span class="eyebrow">KŌGNITARA / </span><span id="top-label">CONVERSATION</span></div><div class="top-actions"><span id="connection"><i></i>Connexion…</span><button class="icon-button" id="refresh" title="Actualiser" aria-label="Actualiser">↻</button></div></header>
+      <header class="topbar"><div><span class="eyebrow">KŌGNITARA / </span><span id="top-label">ACCUEIL</span></div><div class="top-actions"><span id="connection"><i></i>Connexion…</span><button class="icon-button" id="refresh" title="Actualiser" aria-label="Actualiser">↻</button></div></header>
       <div id="notice" class="notice" role="status" hidden></div>
-      <section id="chat" class="panel active" aria-labelledby="chat-title">
+      <section id="home" class="panel active" aria-labelledby="home-title">
+        <div class="heading"><div><div class="overline"><span></span> VOTRE ESPACE LOCAL</div><h1 id="home-title">Bonjour, collègue<span class="accent">.</span></h1><p>Un aperçu de l'activité et des prochaines étapes de Kōgnitara.</p></div><div class="heading-emblem">✳</div></div>
+        <div class="dashboard">
+          <div class="dashboard-card"><span class="mini-label">PÉRIODE PRÉVUE</span><h2 id="home-mode">Chargement…</h2><p id="home-mode-note">Lecture de l'état des services…</p></div>
+          <div class="dashboard-card"><span class="mini-label">SERVICE DE RECHERCHE</span><h2 id="home-research">Chargement…</h2><p>Prochaine étape programmée : <strong id="home-next">Chargement…</strong></p></div>
+          <div class="dashboard-card"><span class="mini-label">SAUVEGARDE USB</span><h2 id="home-backup">Chargement…</h2><p>Fermez KLM avant la sauvegarde : son registre reste verrouillé pendant cette session.</p></div>
+        </div>
+        <div class="warning">Les périodes indiquent le programme prévu, pas une preuve qu'une tâche a réussi. Le journal affiche les événements réels.</div>
+      </section>
+      <section id="chat" class="panel" aria-labelledby="chat-title">
         <div class="heading"><div><div class="overline"><span></span> UN ESPACE POUR ÉCHANGER</div><h1 id="chat-title">Bonjour, collègue<span class="accent">.</span></h1><p>Prenez un moment pour converser avec Kōgnitara.</p></div><div class="heading-emblem">✳</div></div>
         <div class="chat-layout">
           <div class="chat-card">
@@ -43,9 +56,12 @@
         </div>
       </section>
       <section id="status" class="panel" aria-labelledby="status-title"><div class="heading"><div><div class="overline"><span></span> VUE D'ENSEMBLE</div><h1 id="status-title">L'état du système<span class="accent">.</span></h1><p>Un aperçu des cerveaux et de leur activité actuelle.</p></div></div><div id="status-summary" class="stats"></div><h2 class="section-title">Les cerveaux <span>ÉTAT ACTUEL</span></h2><div id="brains" class="brain-grid"></div></section>
+      <section id="knowledge" class="panel" aria-labelledby="knowledge-title"><div class="heading"><div><div class="overline"><span></span> ARBRE DE CONNAISSANCES</div><h1 id="knowledge-title">Les connaissances<span class="accent">.</span></h1><p>Fiches par cerveau : descriptions, sources explicitement associées et questions ouvertes.</p></div></div><div class="warning">✧ &nbsp; Les associations et descriptions ne vérifient pas les faits. L'absence de source affichée ne prouve pas qu'il n'en existe aucune.</div><label class="sr-only" for="knowledge-search">Rechercher dans les connaissances</label><input id="knowledge-search" class="search" type="search" maxlength="200" placeholder="Rechercher une connaissance…"><div id="knowledge-list" class="list"></div><div id="knowledge-pages" class="pagination"><button type="button" class="previous">Précédent</button><span aria-live="polite"></span><button type="button" class="next">Suivant</button></div></section>
       <section id="hypotheses" class="panel" aria-labelledby="hyp-title"><div class="heading"><div><div class="overline"><span></span> PISTES À EXPLORER</div><h1 id="hyp-title">Les hypothèses<span class="accent">.</span></h1><p>Des propositions et leurs sources, à vérifier avant de les considérer comme des faits.</p></div></div><div class="warning">✧ &nbsp; Une source associée ne confirme pas automatiquement une hypothèse.</div><label class="sr-only" for="hyp-search">Rechercher dans les hypothèses</label><input id="hyp-search" class="search" type="search" maxlength="200" placeholder="Rechercher dans les hypothèses…"><div id="hyp-list" class="list"></div><div id="hyp-pages" class="pagination"><button type="button" class="previous">Précédent</button><span aria-live="polite"></span><button type="button" class="next">Suivant</button></div></section>
       <section id="reflections" class="panel" aria-labelledby="ref-title"><div class="heading"><div><div class="overline"><span></span> DERNIÈRES 24 HEURES</div><h1 id="ref-title">Les réflexions<span class="accent">.</span></h1><p>Textes générés par KLM à partir de modèles et des concepts rencontrés.</p></div></div><label class="sr-only" for="ref-search">Rechercher dans les réflexions</label><input id="ref-search" class="search" type="search" maxlength="200" placeholder="Rechercher dans les réflexions…"><div id="ref-list" class="list"></div><div id="ref-pages" class="pagination"><button type="button" class="previous">Précédent</button><span aria-live="polite"></span><button type="button" class="next">Suivant</button></div></section>
       <section id="night" class="panel" aria-labelledby="night-title"><div class="heading"><div><div class="overline"><span></span> DE MINUIT À 8 H</div><h1 id="night-title">L'examen nocturne<span class="accent">.</span></h1><p>Un examen automatique fondé sur les sources et les liens enregistrés, pas une vérification des faits.</p></div></div><div id="night-summary" class="stats"></div><label class="sr-only" for="night-search">Rechercher dans les examens nocturnes</label><input id="night-search" class="search" type="search" maxlength="200" placeholder="Rechercher dans les examens nocturnes…"><div id="night-list" class="list"></div><div id="night-pages" class="pagination"><button type="button" class="previous">Précédent</button><span aria-live="polite"></span><button type="button" class="next">Suivant</button></div></section>
+      <section id="morning" class="panel" aria-labelledby="morning-title"><div class="heading"><div><div class="overline"><span></span> DERNIÈRE NUIT ENREGISTRÉE</div><h1 id="morning-title">Le bilan du matin<span class="accent">.</span></h1><p>Les passages réellement enregistrés entre minuit et 8 h, leurs sujets et les contradictions déjà signalées.</p></div></div><div class="warning">Un lien ou une source marqué contradictoire n'établit pas à lui seul une erreur factuelle.</div><div id="morning-summary" class="stats"></div><label class="sr-only" for="morning-search">Rechercher dans le bilan</label><input id="morning-search" class="search" type="search" maxlength="200" placeholder="Rechercher un sujet du bilan…"><div id="morning-list" class="list"></div><div id="morning-pages" class="pagination"><button type="button" class="previous">Précédent</button><span aria-live="polite"></span><button type="button" class="next">Suivant</button></div></section>
+      <section id="activity" class="panel" aria-labelledby="activity-title"><div class="heading"><div><div class="overline"><span></span> ÉVÉNEMENTS SYSTEMD</div><h1 id="activity-title">Le journal d'activité<span class="accent">.</span></h1><p>Les 50 derniers événements des services de recherche et de sauvegarde ; leur texte original est conservé.</p></div></div><div id="activity-error" class="warning" role="status" hidden></div><div id="activity-list" class="list"></div></section>
     </main>
   </div>
 </body>
