@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up Kognitara to the USB drive
+
+[Service]
+Type=oneshot
+ExecStart=%h/bin/sauvegarde-kognitara
+Restart=on-failure
+RestartSec=10min

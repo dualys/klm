@@ -1,0 +1,9 @@
+[Unit]
+Description=Back up Kognitara every five hours
+
+[Timer]
+OnActiveSec=5h
+OnUnitInactiveSec=5h
+
+[Install]
+WantedBy=timers.target

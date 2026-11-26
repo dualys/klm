@@ -211,6 +211,53 @@ mod registry_tests {
         assert_eq!(fs::read(&registry).unwrap(), original_registry);
         assert_eq!(fs::read(&tags_path).unwrap(), original_tags);
     }
+
+    #[test]
+    fn cli_uses_configured_storage_for_compaction_and_research() {
+        let dir = TestDir::new().unwrap();
+        let root = dir.path("storage with spaces");
+        fs::create_dir(&root).unwrap();
+        let registry = root.join("data");
+        append_snapshot(&registry, b"tagged").unwrap();
+        append_snapshot(&registry, b"unwanted").unwrap();
+        append_snapshot(&registry, b"latest").unwrap();
+        fs::write(root.join("tags.json"), r#"{"release":1}"#).unwrap();
+
+        let compact = std::process::Command::new(env!("CARGO_BIN_EXE_klm"))
+            .env("KOGNITARA_PATH", &root)
+            .arg("compact")
+            .output()
+            .unwrap();
+        assert!(compact.status.success(), "{:?}", compact);
+        assert_eq!(
+            read_states(&registry).unwrap(),
+            vec![b"tagged".to_vec(), b"latest".to_vec()]
+        );
+        assert!(root.join("registry.lock").is_file());
+        assert_eq!(
+            read_tags(&registry, &root.join("tags.json")).unwrap().len(),
+            1
+        );
+
+        let research_root = dir.path("research root");
+        fs::create_dir(&research_root).unwrap();
+        let research = std::process::Command::new(env!("CARGO_BIN_EXE_klm"))
+            .env("KOGNITARA_PATH", &research_root)
+            .arg("research-cycle")
+            .output()
+            .unwrap();
+        assert!(!research.status.success());
+        assert!(research_root.join("research/worker.lock").is_file());
+        assert!(String::from_utf8_lossy(&research.stderr).contains("Cannot open registry"));
+
+        let empty = std::process::Command::new(env!("CARGO_BIN_EXE_klm"))
+            .env("KOGNITARA_PATH", "")
+            .arg("compact")
+            .output()
+            .unwrap();
+        assert!(!empty.status.success());
+        assert!(String::from_utf8_lossy(&empty.stderr).contains("KOGNITARA_PATH cannot be empty"));
+    }
 }
 
 #[test]

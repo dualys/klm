@@ -9,17 +9,47 @@ use inquire::{Confirm, Editor, Select, Text};
 use klm::family::MemberId;
 use klm::{ConceptId, EvidenceRelation, KnowledgeTree, Kognitara, NodeCoord};
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::io::{Write, stdout};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::thread::sleep;
 use std::time::Duration;
 mod research;
-const DATA: &str = "/mnt/kognitara/data";
-const RESEARCH: &str = "/mnt/kognitara/research";
-const TAGS_FILE: &str = "/mnt/kognitara/tags.json";
 use inquire::validator::Validation;
 use klm::{PULSAR_PRIMES, current_timestamp};
+
+struct StoragePaths {
+    data: PathBuf,
+    research: PathBuf,
+    tags: PathBuf,
+    lock: PathBuf,
+}
+
+impl StoragePaths {
+    fn new(root: Option<OsString>) -> Result<Self, &'static str> {
+        let root = root.unwrap_or_else(|| OsString::from("/mnt/kognitara"));
+        if root.is_empty() {
+            return Err("KOGNITARA_PATH cannot be empty");
+        }
+        let root = PathBuf::from(root);
+        Ok(Self {
+            data: root.join("data"),
+            research: root.join("research"),
+            tags: root.join("tags.json"),
+            lock: root.join("registry.lock"),
+        })
+    }
+}
+
+static STORAGE_PATHS: OnceLock<StoragePaths> = OnceLock::new();
+
+fn storage_paths() -> &'static StoragePaths {
+    STORAGE_PATHS
+        .get()
+        .expect("storage paths initialized in main")
+}
 
 fn clear() {
     execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0)).expect("");
@@ -132,8 +162,8 @@ fn export_state(tag_name: &str, dest_path: &str) {
     }
 
     match klm::storage::registry::export_tag(
-        Path::new(DATA),
-        Path::new(TAGS_FILE),
+        &storage_paths().data,
+        &storage_paths().tags,
         tag_name,
         Path::new(dest_path),
     ) {
@@ -151,11 +181,12 @@ fn tag_state(kognitara: &Kognitara, tag_name: &str) {
         return;
     }
 
-    if let Err(error) = persist_import(kognitara, Path::new(DATA)) {
+    if let Err(error) = persist_import(kognitara, &storage_paths().data) {
         ko(&format!("Cannot save state before tagging: {error}"));
         return;
     }
-    match klm::storage::registry::create_tag(Path::new(DATA), Path::new(TAGS_FILE), tag_name) {
+    match klm::storage::registry::create_tag(&storage_paths().data, &storage_paths().tags, tag_name)
+    {
         Ok(id) => ok(&format!(
             "Tag '{}' now points to snapshot {}.",
             tag_name, id
@@ -165,7 +196,7 @@ fn tag_state(kognitara: &Kognitara, tag_name: &str) {
 }
 
 fn list_tags() {
-    match klm::storage::registry::read_tags(Path::new(DATA), Path::new(TAGS_FILE)) {
+    match klm::storage::registry::read_tags(&storage_paths().data, &storage_paths().tags) {
         Ok(tags) if tags.is_empty() => ko("No tags found."),
         Ok(tags) => {
             ok("Here are the saved snapshot tags:");
@@ -178,8 +209,11 @@ fn list_tags() {
 }
 
 fn delete_tag(tag_name: &str) {
-    match klm::storage::registry::delete_tag(Path::new(DATA), Path::new(TAGS_FILE), tag_name.trim())
-    {
+    match klm::storage::registry::delete_tag(
+        &storage_paths().data,
+        &storage_paths().tags,
+        tag_name.trim(),
+    ) {
         Ok(true) => ok(&format!(
             "Tag '{tag_name}' deleted. Run 'compact' to reclaim unreferenced snapshots."
         )),
@@ -189,7 +223,8 @@ fn delete_tag(tag_name: &str) {
 }
 
 fn compact_registry() -> std::io::Result<()> {
-    let report = klm::storage::registry::compact_registry(Path::new(DATA), Path::new(TAGS_FILE))?;
+    let report =
+        klm::storage::registry::compact_registry(&storage_paths().data, &storage_paths().tags)?;
     let freed = report.bytes_before.saturating_sub(report.bytes_after);
     println!(
         "Compacted {} snapshots to {}; kept {} tag(s), reclaimed {freed} bytes.",
@@ -232,7 +267,7 @@ fn relativistic_catchup_on_boot(kognitara: &mut Kognitara) {
         for d in total_discoveries.iter().take(5) {
             ok(d);
         }
-        pack(kognitara, DATA);
+        pack(kognitara, &storage_paths().data);
     } else {
         kognitara.swarm.cosmic_clock.last_human_timestamp = now;
     }
@@ -273,7 +308,7 @@ fn meditate(kognitara: &mut Kognitara, breaths: u64) {
 
     // Launch Socratic Inquisition if Kōgnitara has pending epistemic doubts
     socratic_inquisition(kognitara);
-    pack(kognitara, DATA);
+    pack(kognitara, &storage_paths().data);
 }
 
 /// Socratic Inquisition: Kōgnitara questions the human with the strict 72-character minimum rule.
@@ -472,7 +507,7 @@ fn dream(kognitara: &mut Kognitara) {
         }
     }
     // Immediate backup of oracles and circadian rotation in the Kpack registry
-    pack(kognitara, DATA);
+    pack(kognitara, &storage_paths().data);
 }
 
 fn hypothesis_command(kognitara: &mut Kognitara, input: &str) -> Option<Result<bool, String>> {
@@ -677,33 +712,33 @@ fn interact(kognitara: &mut Kognitara) {
             .or_else(|| equivalence_command(kognitara, trimmed))
         {
             match result {
-                Ok(true) => pack(kognitara, DATA),
+                Ok(true) => pack(kognitara, &storage_paths().data),
                 Ok(false) => {}
                 Err(error) => ko(&error),
             }
         } else if trimmed.eq_ignore_ascii_case("pack") {
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         } else if trimmed.eq_ignore_ascii_case("nap") || trimmed.eq_ignore_ascii_case("sieste") {
             for msg in kognitara.nap_cycle() {
                 ok(&msg);
             }
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         } else if trimmed.eq_ignore_ascii_case("rest") || trimmed.eq_ignore_ascii_case("repos") {
             for msg in kognitara.rest_cycle() {
                 ok(&msg);
             }
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         } else if trimmed.to_lowercase().starts_with("contemplate") {
             let steps = trimmed[11..].trim().parse::<usize>().unwrap_or(5);
             for msg in kognitara.contemplate_cycle(steps) {
                 ok(&msg);
             }
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         } else if trimmed.eq_ignore_ascii_case("hibernate") {
             for msg in kognitara.hibernate_cycle() {
                 ok(&msg);
             }
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         } else if trimmed.eq_ignore_ascii_case("compact") {
             if let Err(error) = compact_registry() {
                 ko(&format!("Registry compaction failed: {error}"));
@@ -731,7 +766,7 @@ fn interact(kognitara: &mut Kognitara) {
             || trimmed.eq_ignore_ascii_case("questions")
         {
             socratic_inquisition(kognitara);
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         } else if trimmed.to_lowercase().starts_with("man ") {
             let concept = trimmed[4..].trim();
             if let Some(page) = kognitara.render_markdown_page(concept) {
@@ -740,7 +775,7 @@ fn interact(kognitara: &mut Kognitara) {
                 ko(&format!("Concept '{}' not found.", concept));
             }
         } else if trimmed.eq_ignore_ascii_case("unpack") {
-            unpack(kognitara, DATA);
+            unpack(kognitara, &storage_paths().data);
         } else if trimmed.eq_ignore_ascii_case("teach") {
             teach_kognitara(kognitara);
         } else if trimmed.eq_ignore_ascii_case("status") {
@@ -761,7 +796,7 @@ fn interact(kognitara: &mut Kognitara) {
         } else if trimmed.eq_ignore_ascii_case("tags") {
             list_tags();
         } else if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
             break;
         } else if trimmed.eq_ignore_ascii_case("dream") {
             dream(kognitara);
@@ -769,7 +804,7 @@ fn interact(kognitara: &mut Kognitara) {
             let current_user = ki();
             let (response, _activated) = kognitara.converse(&current_user, trimmed);
             println!("\r\n{response}\n");
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         }
     }
 }
@@ -808,7 +843,7 @@ fn ko(message: &str) {
     );
 }
 
-fn pack(kognitara: &Kognitara, path: &str) {
+fn pack(kognitara: &Kognitara, path: &Path) {
     use std::fs::OpenOptions;
     use std::io::Write;
 
@@ -866,7 +901,7 @@ fn persist_import(kognitara: &Kognitara, path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn unpack(kognitara: &mut Kognitara, path: &str) -> bool {
+fn unpack(kognitara: &mut Kognitara, path: &Path) -> bool {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
 
@@ -945,13 +980,13 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
             for msg in kognitara.nap_cycle() {
                 ok(&msg);
             }
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         }
         Some(("rest", _)) => {
             for msg in kognitara.rest_cycle() {
                 ok(&msg);
             }
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         }
         Some(("contemplate", sub)) => {
             let steps = sub
@@ -961,13 +996,13 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
             for msg in kognitara.contemplate_cycle(steps) {
                 ok(&msg);
             }
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         }
         Some(("hibernate", _)) => {
             for msg in kognitara.hibernate_cycle() {
                 ok(&msg);
             }
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         }
         Some(("meditate", sub)) => {
             let breaths = sub
@@ -978,7 +1013,7 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
         }
         Some(("questions", _)) => {
             socratic_inquisition(kognitara);
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         }
         Some(("tag", sub)) => match sub.subcommand() {
             Some(("list", _)) => {
@@ -1011,13 +1046,13 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
             }
         }
         Some(("pack", _)) => {
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         }
         Some(("dream", _)) => {
             dream(kognitara);
         }
         Some(("unpack", _)) => {
-            unpack(kognitara, DATA);
+            unpack(kognitara, &storage_paths().data);
         }
         Some(("status", _)) => {
             show_status(kognitara);
@@ -1034,7 +1069,7 @@ fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
             convene_council(kognitara, topic);
 
             // Saving state because the Council wrote in the chronicles
-            pack(kognitara, DATA);
+            pack(kognitara, &storage_paths().data);
         }
         _ => {
             interact(kognitara);
@@ -1063,7 +1098,7 @@ fn teach_kognitara(kognitara: &mut Kognitara) {
         .is_ok()
     {
         ok("I've understand");
-        pack(kognitara, DATA);
+        pack(kognitara, &storage_paths().data);
     } else {
         ko("failed to learn");
     }
@@ -1071,8 +1106,19 @@ fn teach_kognitara(kognitara: &mut Kognitara) {
 
 fn main() {
     let matches = cli().get_matches();
+    let paths = match StoragePaths::new(env::var_os("KOGNITARA_PATH")) {
+        Ok(paths) => paths,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    };
+    if STORAGE_PATHS.set(paths).is_err() {
+        eprintln!("Storage paths are already initialized");
+        std::process::exit(1);
+    }
     if matches.subcommand_name() == Some("research-cycle") {
-        if let Err(error) = research::cycle(Path::new(DATA), Path::new(RESEARCH)) {
+        if let Err(error) = research::cycle(&storage_paths().data, &storage_paths().research) {
             eprintln!("Research failed: {error}");
             std::process::exit(1);
         }
@@ -1083,7 +1129,7 @@ fn main() {
         .write(true)
         .create(true)
         .truncate(false)
-        .open("/mnt/kognitara/registry.lock")
+        .open(&storage_paths().lock)
     {
         Ok(file) => file,
         Err(error) => {
@@ -1106,22 +1152,22 @@ fn main() {
         env::var("KOGNITARA_SANCTUARY_NAME")
             .unwrap_or_else(|_| "Sanctuary of House Ki".to_string()),
     );
-    if Path::new(DATA).exists() {
-        if !unpack(&mut kognitara, DATA) {
+    if storage_paths().data.exists() {
+        if !unpack(&mut kognitara, &storage_paths().data) {
             eprintln!("Cannot open KLM memory; refusing to import research.");
             std::process::exit(1);
         }
     } else {
-        pack(&kognitara, DATA);
-        if !unpack(&mut kognitara, DATA) {
+        pack(&kognitara, &storage_paths().data);
+        if !unpack(&mut kognitara, &storage_paths().data) {
             eprintln!("Cannot create KLM memory.");
             std::process::exit(1);
         }
     }
-    match research::import(&mut kognitara, Path::new(RESEARCH)) {
+    match research::import(&mut kognitara, &storage_paths().research) {
         Ok(0) => {}
         Ok(count) => {
-            if let Err(error) = persist_import(&kognitara, Path::new(DATA)) {
+            if let Err(error) = persist_import(&kognitara, &storage_paths().data) {
                 eprintln!("Cannot save imported research: {error}");
                 std::process::exit(1);
             }
@@ -1150,6 +1196,16 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_root_defaults_and_rejects_empty_values() {
+        let paths = StoragePaths::new(None).unwrap();
+        assert_eq!(paths.data, Path::new("/mnt/kognitara/data"));
+        assert_eq!(paths.research, Path::new("/mnt/kognitara/research"));
+        assert_eq!(paths.tags, Path::new("/mnt/kognitara/tags.json"));
+        assert_eq!(paths.lock, Path::new("/mnt/kognitara/registry.lock"));
+        assert!(StoragePaths::new(Some(OsString::new())).is_err());
+    }
 
     #[test]
     fn hypothesis_commands_record_evidence_and_corrections() {

@@ -1,8 +1,8 @@
 [Unit]
-Description=Run KLM research every hour
+Description=Run KLM research every five minutes
 
 [Timer]
-OnCalendar=hourly
+OnCalendar=*:0/5
 Persistent=true
 
 [Install]

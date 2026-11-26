@@ -159,6 +159,25 @@ klm
 The `no_std` library uses the in-memory block device; the terminal application
 and Unix file-backed `PhysicalBlockDevice` require the `std` feature.
 
+KLM stores `data`, `tags.json`, `registry.lock`, and `research/` under
+`/mnt/kognitara` by default. To use another existing directory, set
+`KOGNITARA_PATH` for one command or export it for the shell:
+
+~~~bash
+mkdir -p "$HOME/kognitara"
+KOGNITARA_PATH="$HOME/kognitara" klm
+# Or: export KOGNITARA_PATH="$HOME/kognitara"
+~~~
+
+An empty `KOGNITARA_PATH` is an error. The directory must exist and be writable;
+KLM does not move existing data. The research service must use the same path:
+an export in a terminal does not automatically configure systemd user services.
+Use `systemctl --user edit klm-research.service` to set, for example,
+`[Service]` followed by `Environment="KOGNITARA_PATH=/home/user/kognitara"`,
+then restart the service or wait for its next cycle. Configure any backup script
+separately for the same source; the example backup service calls a user-supplied
+script and does not change its source path.
+
 The default source filter includes Wikimedia project domains (Wikipedia,
 Wiktionary, Wikibooks, Wikinews, Wikiversity, Wikisource, Wikiquote, Wikivoyage,
 Wikidata, Wikimedia, MediaWiki and Wikifunctions), including language subdomains.
@@ -186,7 +205,7 @@ Inside the interactive shell (`klm`), any input that is not a reserved command i
 | `tags`                  | List saved tags and their stable snapshot IDs                |
 | `tag delete <name>`     | Remove a tag; its snapshot can be reclaimed by `compact`     |
 | `compact`               | Keep the latest snapshot and every tagged snapshot           |
-| `pack` / `unpack`       | Manually compress or restore state from `/mnt/kognitara/data` |
+| `pack` / `unpack`       | Manually compress or restore state from the configured data directory |
 | `clear` / `quit`        | Clear terminal screen or save and exit the Sanctuary shell   |
 | `hypothesis <statement>` | Record an exploratory, unverified statement |
 | `hypotheses`            | List hypotheses, sources and corrections |
@@ -244,14 +263,18 @@ snapshots up to and including that tag, not discarded untagged history.
 
 ### Background research
 
-The optional `klm-research.timer` runs one Wikipedia research cycle every hour.
-It selects only from a small, predefined set of public subjects matching
-KLM's configured topics or open-question concepts. Private conversations and
-question text are never sent to Wikipedia. The cycle requires `curl` and
-accesses French Wikipedia only; it records excerpts and sources, not verified
-facts or peer-reviewed conclusions.
+The optional `klm-research.timer` runs one Wikipedia research cycle every five
+minutes. Initially it selects from a predefined set of public subjects matching
+KLM's configured topics or open-question concepts. It follows public Wikipedia
+article links into a local queue of at most 100 pending subjects, avoiding
+duplicates; failed subjects remain queued. This can lead beyond the original
+topics. Private conversations and question text are never sent to Wikipedia.
+Each cycle may make two requests, for a summary and its article links. The cycle
+requires `curl` and accesses French Wikipedia only; it records excerpts and
+sources, not verified facts or peer-reviewed conclusions.
 
-The service writes observations separately under `/mnt/kognitara/research`.
+The service writes observations separately under `KOGNITARA_PATH/research`
+(`/mnt/kognitara/research` by default).
 They are imported and saved when KLM is next opened; no background process
 writes the main registry. Import rejects invalid or blocked sources and avoids
 re-importing observations. Only one interactive KLM process can hold the
@@ -266,6 +289,15 @@ the timer with `systemctl --user list-timers klm-research.timer` and logs with
 `journalctl --user -u klm-research.service`. Stop it with
 `systemctl --user disable --now klm-research.timer`. User services normally
 stop when the user session ends unless systemd lingering is enabled separately.
+
+The optional `klm-backup.timer` runs the user's
+`~/bin/sauvegarde-kognitara` script every five hours while the user manager is
+running. Copy `systemd/klm-backup.service` and `systemd/klm-backup.timer` to
+`~/.config/systemd/user/`, reload systemd, then enable and start the timer.
+The script must be configured for the correct source and USB volumes. Failed
+backups retry after ten minutes; inspect `journalctl --user -u klm-backup.service`
+for errors. Existing backups are never deleted automatically. The timer starts
+its five-hour interval again when the user manager restarts.
 
 ## Library Usage Example
 
