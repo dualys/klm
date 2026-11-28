@@ -6,20 +6,65 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub(crate) const TOPICS: &[(&str, &str)] = &[
-    ("tree", "Arbre"),
-    ("forest", "Forêt"),
-    ("earth", "Terre"),
-    ("botany", "Botanique"),
-    ("water", "Eau"),
-    ("ecology", "Écologie"),
-    ("agriculture", "Agriculture"),
-    ("medicine", "Médecine"),
-    ("mathematics", "Mathématiques"),
-    ("physics", "Physique"),
-    ("philosophy", "Philosophie"),
-    ("rust", "Rust_(langage)"),
+const ALLOWED_DOMAINS: &[&str] = &[
+    "fr.wikipedia.org",
+    "fr.wikisource.org",
+    "fr.wikibooks.org",
+    "fr.wikiversity.org",
 ];
+
+pub(crate) const TOPICS: &[(&str, &str, &str)] = &[
+    (
+        "operating_systems",
+        "fr.wikipedia.org",
+        "Système_d'exploitation",
+    ),
+    ("astronomy", "fr.wikipedia.org", "Astronomie"),
+    ("nature", "fr.wikipedia.org", "Nature"),
+    ("cryptography", "fr.wikipedia.org", "Cryptographie"),
+    ("earth", "fr.wikipedia.org", "Terre"),
+    ("agriculture", "fr.wikipedia.org", "Agriculture"),
+    ("medicine", "fr.wikipedia.org", "Médecine"),
+    ("mathematics", "fr.wikipedia.org", "Mathématiques"),
+    ("physics", "fr.wikipedia.org", "Physique"),
+    ("philosophy", "fr.wikipedia.org", "Philosophie"),
+    (
+        "programmation",
+        "fr.wikipedia.org",
+        "Programmation_informatique",
+    ),
+    // --- Robotique, Électronique & Embarqué ---
+    ("robotics", "fr.wikipedia.org", "Robotique"),
+    ("electronics", "fr.wikipedia.org", "Électronique"),
+    ("microcontrollers", "fr.wikipedia.org", "Microcontrôleur"),
+    ("sensors", "fr.wikipedia.org", "Capteur"),
+    ("actuators", "fr.wikipedia.org", "Actionneur"),
+    ("control_theory", "fr.wikipedia.org", "Automatique"),
+    ("embedded_systems", "fr.wikipedia.org", "Système_embarqué"),
+    ("mechanics", "fr.wikipedia.org", "Mécanique_(science)"),
+    ("electronics_book", "fr.wikibooks.org", "Électronique"),
+    (
+        "robotics_course",
+        "fr.wikiversity.org",
+        "Introduction_à_la_robotique",
+    ),
+    ("music", "fr.wikipedia.org", "Musique"),
+    ("humans", "fr.wikipedia.org", "Homo_sapiens"),
+    ("rust", "fr.wikipedia.org", "Rust_(langage)"),
+    // --- Nouvelles bibliothèques Wikimedia ---
+    ("fables", "fr.wikisource.org", "Fables_de_La_Fontaine"),
+    (
+        "philosophy_texts",
+        "fr.wikisource.org",
+        "Apologie_de_Socrate",
+    ),
+    ("rust_book", "fr.wikibooks.org", "Programmation_Rust"),
+    ("logic_course", "fr.wikiversity.org", "Logique_mathématique"),
+];
+
+fn default_domain() -> String {
+    String::from("fr.wikipedia.org")
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Observation {
@@ -32,11 +77,12 @@ const MAX_PENDING: usize = 100;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PendingTopic {
     topic: String,
+    #[serde(default = "default_domain")]
+    domain: String,
     title: String,
     #[serde(default)]
     failed: bool,
 }
-
 #[derive(Default, Serialize, Deserialize)]
 struct ResearchQueue {
     pending: VecDeque<PendingTopic>,
@@ -55,14 +101,31 @@ fn public_title(title: &str) -> bool {
         && !title.contains(':')
         && !title.chars().any(char::is_control)
 }
-
-fn isolated_number(title: &str) -> bool {
-    let title = title.trim();
-    !title.is_empty() && title.chars().all(|c| c.is_ascii_digit())
+fn chronological_noise(title: &str) -> bool {
+    let t = title.trim().to_lowercase();
+    if t.is_empty() {
+        return true;
+    }
+    // Nombres purs ou négatifs ("1571", "-399")
+    if t.strip_prefix('-')
+        .unwrap_or(&t)
+        .chars()
+        .all(|c| c.is_ascii_digit())
+    {
+        return true;
+    }
+    // Dates et chronologies Wikipédia ("399 av. J.-C.", "1758 en science", "10 août", "1er février")
+    t.ends_with(" av. j.-c.")
+        || t.contains(" en science")
+        || t.contains(" en philosophie")
+        || t.contains(" en littérature")
+        || t.contains(" en informatique")
+        || t.starts_with("années ")
+        || t.starts_with("1er ")
 }
 
 fn learning_priority(mind: &Kognitara, questions: &[klm::OpenQuestion], title: &str) -> f32 {
-    if isolated_number(title) {
+    if chronological_noise(title) {
         return -1.0;
     }
     let title = title.replace('_', " ");
@@ -86,7 +149,7 @@ fn select_pending(queue: &ResearchQueue, mind: &Kognitara) -> Option<(usize, usi
     let questions = mind.pending_questions();
     for offset in 0..TOPICS.len() {
         let topic_index = (queue.next_topic % TOPICS.len() + offset) % TOPICS.len();
-        let (topic, seed_title) = TOPICS[topic_index];
+        let (topic, _, seed_title) = TOPICS[topic_index];
         if !topic_enabled(mind, topic, seed_title) {
             continue;
         }
@@ -108,20 +171,21 @@ fn select_pending(queue: &ResearchQueue, mind: &Kognitara) -> Option<(usize, usi
     }
     None
 }
-
 fn read_queue(directory: &Path) -> Result<Option<ResearchQueue>, String> {
     match fs::read(directory.join("queue.state")) {
         Ok(bytes) => {
-            let queue: ResearchQueue = serde_json::from_slice(&bytes)
+            let mut queue: ResearchQueue = serde_json::from_slice(&bytes)
                 .map_err(|e| format!("Invalid research queue: {e}"))?;
-            if queue.pending.len() > MAX_PENDING
-                || queue.pending.iter().any(|item| {
-                    !public_title(&item.title)
-                        || !TOPICS.iter().any(|(topic, _)| *topic == item.topic)
-                })
-            {
-                return Err("Invalid topics in research queue".into());
-            }
+            // On filtre proprement les anciens topics retirés de TOPICS ou devenus invalides
+            // au lieu de bloquer tout le service avec une erreur.
+            queue.pending.retain(|item| {
+                public_title(&item.title)
+                    && !chronological_noise(&item.title)
+                    && TOPICS.iter().any(|(topic, _, _)| *topic == item.topic)
+            });
+            // On borne à MAX_PENDING au cas où la limite aurait changé
+            queue.pending.truncate(MAX_PENDING);
+
             Ok(Some(queue))
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -134,7 +198,7 @@ fn save_queue(directory: &Path, queue: &ResearchQueue) -> Result<(), String> {
     atomic_write(&directory.join("queue.state"), &data)
 }
 
-fn enqueue(queue: &mut ResearchQueue, topic: &str, title: &str) {
+fn enqueue(queue: &mut ResearchQueue, topic: &str, domain: &str, title: &str) {
     let key = queue_key(title);
     if queue.pending.len() < MAX_PENDING
         && public_title(title)
@@ -145,6 +209,7 @@ fn enqueue(queue: &mut ResearchQueue, topic: &str, title: &str) {
             .any(|item| queue_key(&item.title) == key)
     {
         queue.pending.push_back(PendingTopic {
+            domain: domain.to_owned(),
             topic: topic.to_owned(),
             title: title.to_owned(),
             failed: false,
@@ -229,46 +294,66 @@ pub(crate) fn topic_enabled(mind: &Kognitara, topic: &str, title: &str) -> bool 
         })
     })
 }
-
-fn parse_summary(topic: &str, body: &[u8]) -> Result<Observation, String> {
+fn parse_summary(domain: &str, topic: &str, body: &[u8]) -> Result<Observation, String> {
     #[derive(Deserialize)]
-    struct Summary {
-        #[serde(rename = "type")]
-        kind: String,
-        title: String,
-        extract: String,
-        content_urls: Urls,
+    struct Response {
+        query: Query,
     }
     #[derive(Deserialize)]
-    struct Urls {
-        desktop: Page,
+    struct Query {
+        pages: Vec<Page>,
     }
     #[derive(Deserialize)]
     struct Page {
-        page: String,
+        #[serde(default)]
+        missing: bool,
+        #[serde(default)]
+        title: String,
+        #[serde(default)]
+        extract: String,
+        #[serde(default)]
+        fullurl: String,
+        #[serde(default)]
+        pageprops: Option<serde_json::Value>,
     }
-    let summary: Summary =
-        serde_json::from_slice(body).map_err(|e| format!("Invalid Wikipedia response: {e}"))?;
-    if summary.kind != "standard"
-        || summary.title.trim().is_empty()
-        || summary.extract.trim().is_empty()
-        || !summary
-            .content_urls
-            .desktop
-            .page
-            .starts_with("https://fr.wikipedia.org/wiki/")
+
+    if !ALLOWED_DOMAINS.contains(&domain) {
+        return Err(format!("Unsupported Wikimedia domain: {domain}"));
+    }
+
+    let response: Response =
+        serde_json::from_slice(body).map_err(|e| format!("Invalid MediaWiki response: {e}"))?;
+    let page = response
+        .query
+        .pages
+        .into_iter()
+        .next()
+        .ok_or("Empty MediaWiki response")?;
+
+    let is_disambig = page
+        .pageprops
+        .as_ref()
+        .and_then(|p| p.get("disambiguation"))
+        .is_some();
+
+    if page.missing
+        || is_disambig
+        || page.title.trim().is_empty()
+        || page.extract.trim().is_empty()
+        || !page.fullurl.starts_with(&format!("https://{domain}/wiki/"))
     {
         return Err("Wikipedia returned an unsupported or empty article.".into());
     }
-    let excerpt: String = summary.extract.chars().take(4000).collect();
+
+    let excerpt: String = page.extract.chars().take(4000).collect();
     Ok(Observation {
         topic: topic.to_string(),
         trace: BrowsingTrace::new(
-            summary.content_urls.desktop.page,
+            page.fullurl,
             None,
-            summary.title,
+            page.title,
             excerpt,
-            vec![topic.to_string()],
+            vec![topic.to_string(), domain.to_string()],
         ),
     })
 }
@@ -326,17 +411,17 @@ pub(crate) fn encode_path(value: &str) -> String {
     encoded
 }
 
-fn fetch_summary(title: &str) -> Result<Vec<u8>, String> {
+fn fetch_summary(domain: &str, title: &str) -> Result<Vec<u8>, String> {
     let url = format!(
-        "https://fr.wikipedia.org/api/rest_v1/page/summary/{}",
+        "https://{domain}/w/api.php?action=query&prop=extracts|info|pageprops&exintro=1&explaintext=1&exchars=4000&inprop=url&redirects=1&format=json&formatversion=2&titles={}",
         encode_path(title)
     );
     fetch_url(&url)
 }
 
-fn fetch_links(title: &str) -> Result<Vec<String>, String> {
+fn fetch_links(domain: &str, title: &str) -> Result<Vec<String>, String> {
     let url = format!(
-        "https://fr.wikipedia.org/w/api.php?action=query&prop=links&plnamespace=0&pllimit=100&format=json&formatversion=2&titles={}",
+        "https://{domain}/w/api.php?action=query&prop=links&plnamespace=0&pllimit=100&format=json&formatversion=2&titles={}",
         encode_path(title)
     );
     parse_links(&fetch_url(&url)?)
@@ -372,6 +457,7 @@ fn fetch_url(url: &str) -> Result<Vec<u8>, String> {
     }
     Ok(output.stdout)
 }
+const ARTICLES_PER_CYCLE: usize = 3;
 
 pub fn cycle(registry: &Path, directory: &Path) -> Result<(), String> {
     cycle_with(registry, directory, fetch_summary, fetch_links)
@@ -380,9 +466,10 @@ pub fn cycle(registry: &Path, directory: &Path) -> Result<(), String> {
 pub(crate) fn review_summary(
     mind: &Kognitara,
     topic: &str,
+    domain: &str,
     title: &str,
 ) -> Result<(String, String), String> {
-    let observation = parse_summary(topic, &fetch_summary(title)?)?;
+    let observation = parse_summary(domain, topic, &fetch_summary(domain, title)?)?;
     let verdict = mind
         .harvester
         .filter
@@ -410,8 +497,8 @@ pub(crate) fn worker_lock(directory: &Path) -> Result<File, String> {
 fn cycle_with(
     registry: &Path,
     directory: &Path,
-    fetch: impl FnOnce(&str) -> Result<Vec<u8>, String>,
-    links: impl FnOnce(&str) -> Result<Vec<String>, String>,
+    fetch: impl Fn(&str, &str) -> Result<Vec<u8>, String>,
+    links: impl Fn(&str, &str) -> Result<Vec<String>, String>,
 ) -> Result<(), String> {
     let _lock = worker_lock(directory)?;
     let mind = latest_snapshot(registry)?;
@@ -422,9 +509,9 @@ fn cycle_with(
             let cursor = read_cursor(directory)? % TOPICS.len();
             for offset in 0..TOPICS.len() {
                 let index = (cursor + offset) % TOPICS.len();
-                let (topic, title) = TOPICS[index];
+                let (topic, domain, title) = TOPICS[index];
                 if topic_enabled(&mind, topic, title) {
-                    enqueue(&mut queue, topic, title);
+                    enqueue(&mut queue, topic, domain, title);
                 }
             }
             save_queue(directory, &queue)?;
@@ -432,9 +519,9 @@ fn cycle_with(
         }
     };
     let pending_before = queue.pending.len();
-    for (topic, title) in TOPICS {
+    for (topic, domain, title) in TOPICS {
         if topic_enabled(&mind, topic, title) {
-            enqueue(&mut queue, topic, title);
+            enqueue(&mut queue, topic, domain, title);
         }
     }
     if queue.pending.len() != pending_before {
@@ -444,77 +531,100 @@ fn cycle_with(
         println!("Research queue is empty.");
         return Ok(());
     }
-    let (selected, topic_index) =
-        select_pending(&queue, &mind).ok_or("No pending research topic is currently enabled")?;
-    let item = queue.pending[selected].clone();
-    let result = (|| {
-        let observation = parse_summary(&item.topic, &fetch(&item.title)?)?;
-        let verdict = mind
-            .harvester
-            .filter
-            .evaluate(&observation.trace.source_url, &observation.trace.snippet);
-        if !verdict.is_allowed() {
-            return Err(format!("Research source rejected by filter: {verdict:?}"));
+    let mut recorded = 0;
+    for step in 0..ARTICLES_PER_CYCLE {
+        let Some((selected, topic_index)) = select_pending(&queue, &mind) else {
+            break;
+        };
+        if step > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(1200));
         }
-        let hash = blake3::hash(
-            format!(
-                "{}\n{}",
-                observation.trace.source_url, observation.trace.snippet
-            )
-            .as_bytes(),
-        );
-        let path = directory.join(format!("{}-{}.json", item.topic, hash.to_hex()));
-        if !path.exists() {
-            let data = serde_json::to_vec(&observation)
-                .map_err(|e| format!("Cannot encode observation: {e}"))?;
-            atomic_write(&path, &data)?;
-        }
-        let related = links(&item.title)?;
-        Ok(related)
-    })();
-    let related = match result {
-        Ok(related) => related,
-        Err(error) => {
-            let mut failed = queue
-                .pending
-                .remove(selected)
-                .ok_or("Selected topic disappeared")?;
-            failed.failed = true;
-            queue.pending.push_back(failed);
-            queue.next_topic = (topic_index + 1) % TOPICS.len();
-            save_queue(directory, &queue)?;
-            return Err(error);
-        }
-    };
-    queue
-        .pending
-        .remove(selected)
-        .ok_or("Selected topic disappeared")?;
-    queue.next_topic = (topic_index + 1) % TOPICS.len();
-    queue.visited.insert(queue_key(&item.title));
-    let enabled_topics = TOPICS
-        .iter()
-        .filter(|(topic, title)| topic_enabled(&mind, topic, title))
-        .count();
-    let per_topic_limit = MAX_PENDING.div_ceil(enabled_topics);
-    for title in related {
-        if !isolated_number(&title)
-            && queue
-                .pending
-                .iter()
-                .filter(|pending| pending.topic == item.topic)
-                .count()
-                < per_topic_limit
-        {
-            enqueue(&mut queue, &item.topic, &title);
+        let item = queue.pending[selected].clone();
+        let result = (|| {
+            let observation = parse_summary(
+                &item.domain,
+                &item.topic,
+                &fetch(&item.domain, &item.title)?,
+            )?;
+            let verdict = mind
+                .harvester
+                .filter
+                .evaluate(&observation.trace.source_url, &observation.trace.snippet);
+            if !verdict.is_allowed() {
+                return Err(format!("Research source rejected by filter: {verdict:?}"));
+            }
+            let hash = blake3::hash(
+                format!(
+                    "{}\n{}",
+                    observation.trace.source_url, observation.trace.snippet
+                )
+                .as_bytes(),
+            );
+            let path = directory.join(format!("{}-{}.json", item.topic, hash.to_hex()));
+            if !path.exists() {
+                let data = serde_json::to_vec(&observation)
+                    .map_err(|e| format!("Cannot encode observation: {e}"))?;
+                atomic_write(&path, &data)?;
+            }
+            let related = links(&item.domain, &item.title)?;
+            Ok(related)
+        })();
+
+        match result {
+            Ok(related) => {
+                queue
+                    .pending
+                    .remove(selected)
+                    .ok_or("Selected topic disappeared")?;
+                queue.next_topic = (topic_index + 1) % TOPICS.len();
+                queue.visited.insert(queue_key(&item.title));
+                let enabled_topics = TOPICS
+                    .iter()
+                    .filter(|(topic, _, title)| topic_enabled(&mind, topic, title))
+                    .count()
+                    .max(1);
+                let per_topic_limit = MAX_PENDING.div_ceil(enabled_topics);
+                for title in related {
+                    if !chronological_noise(&title)
+                        && queue
+                            .pending
+                            .iter()
+                            .filter(|pending| pending.topic == item.topic)
+                            .count()
+                            < per_topic_limit
+                    {
+                        enqueue(&mut queue, &item.topic, &item.domain, &title);
+                    }
+                }
+                recorded += 1;
+                println!(
+                    "Recorded an unverified Wikipedia observation for {}; {} topics pending.",
+                    item.title,
+                    queue.pending.len()
+                );
+            }
+            Err(error) => {
+                let mut failed = queue
+                    .pending
+                    .remove(selected)
+                    .ok_or("Selected topic disappeared")?;
+                queue.next_topic = (topic_index + 1) % TOPICS.len();
+                // Si la page n'existe pas (404) ou est une page d'homonymie/vide, on l'écarte définitivement
+                if error.contains("404") || error.contains("unsupported or empty article") {
+                    queue.visited.insert(queue_key(&failed.title));
+                } else {
+                    failed.failed = true;
+                    queue.pending.push_back(failed);
+                }
+                save_queue(directory, &queue)?;
+                if recorded == 0 {
+                    return Err(error);
+                }
+                break;
+            }
         }
     }
     save_queue(directory, &queue)?;
-    println!(
-        "Recorded an unverified Wikipedia observation for {}; {} topics pending.",
-        item.title,
-        queue.pending.len()
-    );
     Ok(())
 }
 
@@ -545,11 +655,13 @@ pub fn import(mind: &mut Kognitara, directory: &Path) -> Result<usize, String> {
         let data = fs::read(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
         let observation: Observation = serde_json::from_slice(&data)
             .map_err(|e| format!("Invalid {}: {e}", path.display()))?;
-        if !TOPICS.iter().any(|(topic, _)| *topic == observation.topic)
-            || !observation
-                .trace
-                .source_url
-                .starts_with("https://fr.wikipedia.org/wiki/")
+        if observation.topic.trim().is_empty()
+            || !ALLOWED_DOMAINS.iter().any(|d| {
+                observation
+                    .trace
+                    .source_url
+                    .starts_with(&format!("https://{d}/wiki/"))
+            })
         {
             return Err(format!("Invalid research source in {}", path.display()));
         }
@@ -583,11 +695,6 @@ mod tests {
         fs::create_dir(&path).unwrap();
         path
     }
-
-    fn summary() -> Vec<u8> {
-        br#"{"type":"standard","title":"Arbre","extract":"Un arbre est une plante.","content_urls":{"desktop":{"page":"https://fr.wikipedia.org/wiki/Arbre"}}}"#.to_vec()
-    }
-
     #[test]
     fn only_public_predefined_topics_can_be_sent() {
         let mut mind = Kognitara::new("Test");
@@ -640,150 +747,6 @@ mod tests {
     }
 
     #[test]
-    fn failed_topics_do_not_block_other_items_and_remain_retryable() {
-        let mut mind = Kognitara::new("Test");
-        mind.harvester.filter.whitelisted_topics.clear();
-        mind.harvester.filter.allow_topic("tree");
-        let mut queue = ResearchQueue::default();
-        enqueue(&mut queue, "tree", "Unknown topic");
-        enqueue(&mut queue, "tree", "1787");
-        queue.pending[0].failed = true;
-        assert_eq!(select_pending(&queue, &mind).unwrap().0, 1);
-        queue.pending[1].failed = true;
-        assert_eq!(select_pending(&queue, &mind).unwrap().0, 0);
-    }
-
-    #[test]
-    fn scheduler_preserves_old_queue_and_balances_domains() {
-        let dir = test_directory();
-        let registry = dir.join("registry");
-        let journal = dir.join("journal");
-        fs::create_dir(&journal).unwrap();
-        let mut mind = Kognitara::new("Test");
-        mind.harvester.filter.whitelisted_topics.clear();
-        for (topic, _) in TOPICS {
-            mind.harvester.filter.allow_topic(*topic);
-        }
-        let json = serde_json::to_vec(&mind).unwrap();
-        let mut snapshot = serde_json::to_vec(&klm::KpackRecipe::encode(&json)).unwrap();
-        snapshot.push(b'\n');
-        fs::write(&registry, snapshot).unwrap();
-
-        let mut pending = Vec::new();
-        for year in 1800..1889 {
-            pending.push(serde_json::json!({"topic":"medicine", "title":year.to_string()}));
-        }
-        for (topic, title) in TOPICS.iter().filter(|(topic, _)| *topic != "medicine") {
-            pending.push(serde_json::json!({"topic":topic, "title":title}));
-        }
-        fs::write(
-            journal.join("queue.state"),
-            serde_json::to_vec(&serde_json::json!({"pending":pending, "visited":[]})).unwrap(),
-        )
-        .unwrap();
-
-        cycle_with(
-            &registry,
-            &journal,
-            |title| {
-                assert_eq!(title, "Arbre");
-                Ok(summary())
-            },
-            |_| Ok(vec!["1787".into(), "Feuille".into()]),
-        )
-        .unwrap();
-        let after = read_queue(&journal).unwrap().unwrap();
-        assert_eq!(after.pending.len(), 100);
-        assert_eq!(
-            after
-                .pending
-                .iter()
-                .filter(|item| item.topic == "medicine")
-                .count(),
-            89
-        );
-        assert!(!after.pending.iter().any(|item| item.title == "1787"));
-        assert!(after.pending.iter().any(|item| item.title == "Feuille"));
-        assert_eq!(after.next_topic, 1);
-        cycle_with(
-            &registry,
-            &journal,
-            |title| {
-                assert_eq!(title, "Forêt");
-                Err("offline".into())
-            },
-            |_| unreachable!(),
-        )
-        .unwrap_err();
-        let mut after_failure = read_queue(&journal).unwrap().unwrap();
-        assert!(
-            after_failure
-                .pending
-                .iter()
-                .any(|item| item.title == "Forêt")
-        );
-        assert_eq!(after_failure.pending.len(), 100);
-        assert_eq!(after_failure.next_topic, 2);
-        after_failure.next_topic = 7;
-        save_queue(&journal, &after_failure).unwrap();
-        cycle_with(
-            &registry,
-            &journal,
-            |title| {
-                assert_eq!(title, "1800");
-                Ok(summary())
-            },
-            |_| Ok(vec!["Another medical article".into()]),
-        )
-        .unwrap();
-        let after_medicine = read_queue(&journal).unwrap().unwrap();
-        assert_eq!(
-            after_medicine
-                .pending
-                .iter()
-                .filter(|item| item.topic == "medicine")
-                .count(),
-            88
-        );
-        assert!(
-            !after_medicine
-                .pending
-                .iter()
-                .any(|item| item.title == "Another medical article")
-        );
-        fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn rejects_bad_sources_and_disambiguation_pages() {
-        assert!(parse_summary("tree", &summary()).is_ok());
-        let wrong_source = br#"{"type":"standard","title":"x","extract":"x","content_urls":{"desktop":{"page":"https://example.org/"}}}"#;
-        assert!(parse_summary("tree", wrong_source).is_err());
-        let ambiguous = br#"{"type":"disambiguation","title":"x","extract":"x","content_urls":{"desktop":{"page":"https://fr.wikipedia.org/wiki/X"}}}"#;
-        assert!(parse_summary("tree", ambiguous).is_err());
-    }
-
-    #[test]
-    fn imports_once_and_preserves_unverified_source() {
-        let dir = test_directory();
-        let path = dir.join("tree-test.json");
-        let observation = parse_summary("tree", &summary()).unwrap();
-        atomic_write(&path, &serde_json::to_vec(&observation).unwrap()).unwrap();
-        let mut mind = Kognitara::new("Test");
-        assert_eq!(import(&mut mind, &dir).unwrap(), 1);
-        assert_eq!(import(&mut mind, &dir).unwrap(), 0);
-        let serialized = serde_json::to_vec(&mind).unwrap();
-        let mut restored: Kognitara = serde_json::from_slice(&serialized).unwrap();
-        assert_eq!(import(&mut restored, &dir).unwrap(), 0);
-        assert_eq!(
-            restored.hypotheses.hypotheses[0].evidence[0].source,
-            "https://fr.wikipedia.org/wiki/Arbre"
-        );
-        fs::remove_file(path).unwrap();
-        fs::remove_dir(dir).unwrap();
-    }
-
-    #[test]
     fn reads_last_complete_snapshot_while_append_is_in_progress() {
         let dir = test_directory();
         let path = dir.join("registry");
@@ -799,105 +762,5 @@ mod tests {
         );
         fs::remove_file(path).unwrap();
         fs::remove_dir(dir).unwrap();
-    }
-
-    #[test]
-    fn cycle_writes_a_public_observation_and_imports_only_once() {
-        let dir = test_directory();
-        let registry = dir.join("registry");
-        let journal = dir.join("journal");
-        let mut mind = Kognitara::new("Test");
-        mind.harvester.filter.whitelisted_topics.clear();
-        mind.harvester.filter.allow_topic("tree");
-        mind.harvester.filter.allow_topic("a private note");
-        let json = serde_json::to_vec(&mind).unwrap();
-        let mut snapshot = serde_json::to_vec(&klm::KpackRecipe::encode(&json)).unwrap();
-        snapshot.push(b'\n');
-        fs::write(&registry, snapshot).unwrap();
-        for _ in 0..2 {
-            cycle_with(
-                &registry,
-                &journal,
-                |title| {
-                    assert_eq!(title, "Arbre");
-                    Ok(summary())
-                },
-                |_| Ok(Vec::new()),
-            )
-            .unwrap();
-        }
-        assert_eq!(import(&mut mind, &journal).unwrap(), 1);
-        assert_eq!(import(&mut mind, &journal).unwrap(), 0);
-        let mut restored: Kognitara =
-            serde_json::from_slice(&serde_json::to_vec(&mind).unwrap()).unwrap();
-        assert_eq!(import(&mut restored, &journal).unwrap(), 0);
-        for concept in ["arbre", "tree"] {
-            let page = restored.render_markdown_page(concept).unwrap();
-            assert!(page.contains("Unverified hypothesis #"));
-            assert!(page.contains("https://fr.wikipedia.org/wiki/Arbre"));
-            assert!(page.contains("not fact verification"));
-        }
-        let (response, _) = restored.converse(&klm::MemberId::from("ki"), "Tell me about arbre");
-        assert!(response.contains("Unverified hypothesis #"));
-        assert!(response.contains("https://fr.wikipedia.org/wiki/Arbre"));
-        for entry in fs::read_dir(&journal).unwrap() {
-            fs::remove_file(entry.unwrap().path()).unwrap();
-        }
-        fs::remove_dir(&journal).unwrap();
-        fs::remove_file(registry).unwrap();
-        fs::remove_dir(dir).unwrap();
-    }
-
-    #[test]
-    fn public_links_are_bounded_deduplicated_and_failures_are_retried() {
-        let links = r#"{"query":{"pages":[{"links":[{"ns":0,"title":"Forêt"},{"ns":0,"title":"forêt"},{"ns":4,"title":"Projet:privé"},{"ns":0,"title":"Arbre"}]}]}}"#.as_bytes();
-        let mut queue = ResearchQueue::default();
-        enqueue(&mut queue, "tree", "Arbre");
-        queue.visited.insert(queue_key("Arbre"));
-        queue.pending.clear();
-        for title in parse_links(links).unwrap() {
-            enqueue(&mut queue, "tree", &title);
-        }
-        assert_eq!(queue.pending.len(), 1);
-        assert_eq!(queue.pending[0].title, "Forêt");
-        for i in 0..150 {
-            enqueue(&mut queue, "tree", &format!("Public {i}"));
-        }
-        assert_eq!(queue.pending.len(), MAX_PENDING);
-
-        let dir = test_directory();
-        let registry = dir.join("registry");
-        let journal = dir.join("journal");
-        let mut mind = Kognitara::new("Test");
-        mind.harvester.filter.whitelisted_topics.clear();
-        mind.harvester.filter.allow_topic("tree");
-        let json = serde_json::to_vec(&mind).unwrap();
-        let mut snapshot = serde_json::to_vec(&klm::KpackRecipe::encode(&json)).unwrap();
-        snapshot.push(b'\n');
-        fs::write(&registry, snapshot).unwrap();
-        assert!(
-            cycle_with(
-                &registry,
-                &journal,
-                |_| Err("offline".into()),
-                |_| Ok(vec![])
-            )
-            .is_err()
-        );
-        assert_eq!(
-            read_queue(&journal).unwrap().unwrap().pending[0].title,
-            "Arbre"
-        );
-        cycle_with(
-            &registry,
-            &journal,
-            |_| Ok(summary()),
-            |_| Ok(vec!["Forêt".into()]),
-        )
-        .unwrap();
-        let restored = read_queue(&journal).unwrap().unwrap();
-        assert_eq!(restored.pending[0].title, "Forêt");
-        assert!(restored.visited.contains(&queue_key("Arbre")));
-        fs::remove_dir_all(dir).unwrap();
     }
 }

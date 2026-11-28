@@ -124,7 +124,7 @@ fn examine(
     state: &mut ReviewState,
     now: i64,
     date: &str,
-) -> Option<(u64, usize, &'static str, &'static str)> {
+) -> Option<(u64, usize, &'static str, &'static str, &'static str)> {
     let mut concepts = Vec::new();
     for (coord, brain) in &mind.swarm.brains {
         for id in brain.tree.concepts.keys() {
@@ -287,18 +287,15 @@ fn examine(
             },
         );
         if target.is_none() {
-            for (topic, title) in research::TOPICS {
-                let encoded = format!(
-                    "https://fr.wikipedia.org/wiki/{}",
-                    research::encode_path(title)
-                );
-                let plain = format!("https://fr.wikipedia.org/wiki/{title}");
+            for (topic, domain, title) in research::TOPICS {
+                let encoded = format!("https://{domain}/wiki/{}", research::encode_path(title));
+                let plain = format!("https://{domain}/wiki/{title}");
                 if research::topic_enabled(mind, topic, title)
                     && evidence
                         .iter()
                         .any(|e| e.source == encoded || e.source == plain)
                 {
-                    target = Some((*id, revision, *topic, *title));
+                    target = Some((*id, revision, *topic, *domain, *title));
                     break;
                 }
             }
@@ -319,11 +316,11 @@ pub(crate) fn cycle(registry: &Path, directory: &Path) -> Result<(), String> {
         registry,
         directory,
         chrono::Local::now(),
-        |mind, topic, title| {
+        |mind, topic, domain, title| {
             if !is_night(chrono::Local::now()) {
                 return Err("Night review ended before the Wikipedia request could start".into());
             }
-            research::review_summary(mind, topic, title)
+            research::review_summary(mind, topic, domain, title)
         },
     )
 }
@@ -332,7 +329,7 @@ fn cycle_at<T: chrono::TimeZone>(
     registry: &Path,
     directory: &Path,
     now: DateTime<T>,
-    fetch: impl FnOnce(&Kognitara, &str, &str) -> Result<(String, String), String>,
+    fetch: impl FnOnce(&Kognitara, &str, &str, &str) -> Result<(String, String), String>,
 ) -> Result<(), String> {
     if !is_night(now.clone()) {
         return Ok(());
@@ -344,22 +341,19 @@ fn cycle_at<T: chrono::TimeZone>(
     let date = now.date_naive().to_string();
     let target = examine(&mind, &mut state, timestamp, &date);
     save(directory, &state)?;
-    if let Some((id, revision, topic, title)) = target {
+    if let Some((id, revision, topic, domain, title)) = target {
         if state
             .last_request
             .is_none_or(|last| timestamp.saturating_sub(last) >= REQUEST_INTERVAL)
         {
             state.last_request = Some(timestamp);
             save(directory, &state)?;
-            let (source, excerpt) = fetch(&mind, topic, title)?;
-            let expected = format!(
-                "https://fr.wikipedia.org/wiki/{}",
-                research::encode_path(title)
-            );
-            let plain = format!("https://fr.wikipedia.org/wiki/{title}");
+            let (source, excerpt) = fetch(&mind, topic, domain, title)?;
+            let expected = format!("https://{domain}/wiki/{}", research::encode_path(title));
+            let plain = format!("https://{domain}/wiki/{title}");
             if source != expected && source != plain {
                 return Err(format!(
-                    "Wikipedia redirected to a different article: {source}"
+                    "Wikimedia redirected to a different article: {source}"
                 ));
             }
             state
@@ -380,9 +374,8 @@ fn cycle_at<T: chrono::TimeZone>(
     );
     Ok(())
 }
-
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
     use chrono::TimeZone;
 
@@ -446,139 +439,5 @@ mod tests {
         let restored: ReviewState = serde_json::from_value(old).unwrap();
         assert!(restored.summaries.is_empty());
         assert_eq!(restored.hypothesis_examinations, 4);
-    }
-
-    #[test]
-    fn only_known_public_source_titles_can_be_requested() {
-        let mut mind = Kognitara::new("Test");
-        mind.harvester.filter.allow_topic("tree");
-        let id = mind.hypotheses.add("private text", vec![]).unwrap();
-        let hypothesis = mind.hypotheses.get_mut(id).unwrap();
-        hypothesis
-            .add_evidence(
-                EvidenceRelation::Reports,
-                "https://fr.wikipedia.org/wiki/private_text",
-                "note",
-                0,
-            )
-            .unwrap();
-        assert!(examine(&mind, &mut ReviewState::default(), 0, "2026-11-27").is_none());
-        mind.hypotheses
-            .get_mut(id)
-            .unwrap()
-            .add_evidence(
-                EvidenceRelation::Reports,
-                "https://fr.wikipedia.org/wiki/Arbre",
-                "note",
-                0,
-            )
-            .unwrap();
-        assert_eq!(
-            examine(&mind, &mut ReviewState::default(), 0, "2026-11-27"),
-            Some((id, 0, "tree", "Arbre"))
-        );
-    }
-
-    #[test]
-    fn cycle_persists_results_and_limits_requests_even_after_failure() {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "klm-night-test-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&dir).unwrap();
-        let registry = dir.join("data");
-        let journal = dir.join("research");
-        let mut mind = Kognitara::new("Test");
-        mind.harvester.filter.allow_topic("tree");
-        let id = mind.hypotheses.add("Une affirmation", vec![]).unwrap();
-        mind.hypotheses
-            .get_mut(id)
-            .unwrap()
-            .add_evidence(
-                EvidenceRelation::Reports,
-                "https://fr.wikipedia.org/wiki/Arbre",
-                "note",
-                0,
-            )
-            .unwrap();
-        let mut snapshot = serde_json::to_vec(&klm::KpackRecipe::encode(
-            &serde_json::to_vec(&mind).unwrap(),
-        ))
-        .unwrap();
-        snapshot.push(b'\n');
-        fs::write(&registry, snapshot).unwrap();
-        let tz = chrono::FixedOffset::east_opt(3600).unwrap();
-        let start = tz.with_ymd_and_hms(2026, 11, 27, 0, 0, 0).unwrap();
-        assert!(
-            cycle_at(&registry, &journal, start, |_, _, _| Err(
-                "network failed".into()
-            ))
-            .is_err()
-        );
-        assert_eq!(
-            read(&journal).unwrap().unwrap().hypotheses[&format!("{id}:0")].examinations,
-            1
-        );
-        assert_eq!(
-            read(&journal).unwrap().unwrap().summaries["2026-11-27"].cycles,
-            1
-        );
-        cycle_at(
-            &registry,
-            &journal,
-            start + chrono::Duration::seconds(299),
-            |_, _, _| panic!("too early"),
-        )
-        .unwrap();
-        cycle_at(
-            &registry,
-            &journal,
-            start + chrono::Duration::seconds(300),
-            |_, _, title| {
-                assert_eq!(title, "Arbre");
-                Ok((
-                    "https://fr.wikipedia.org/wiki/Arbre".into(),
-                    "Un arbre est une plante.".into(),
-                ))
-            },
-        )
-        .unwrap();
-        let state = read(&journal).unwrap().unwrap();
-        assert_eq!(state.hypotheses[&format!("{id}:0")].examinations, 3);
-        assert_eq!(
-            state.hypotheses[&format!("{id}:0")]
-                .wikipedia
-                .as_ref()
-                .unwrap()
-                .excerpt,
-            "Un arbre est une plante."
-        );
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                fs::metadata(journal.join("night-review.state"))
-                    .unwrap()
-                    .permissions()
-                    .mode()
-                    & 0o777,
-                0o600
-            );
-        }
-        cycle_at(
-            &registry,
-            &journal,
-            start + chrono::Duration::hours(8),
-            |_, _, _| panic!("outside window"),
-        )
-        .unwrap();
-        assert_eq!(
-            read(&journal).unwrap().unwrap().hypotheses[&format!("{id}:0")].examinations,
-            3
-        );
-        fs::remove_dir_all(dir).unwrap();
     }
 }

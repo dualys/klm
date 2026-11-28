@@ -166,6 +166,28 @@ impl SovereignFilter {
             "kpack",
             "jinshu",
             "cubefs",
+            // Nouveaux domaines ajoutés
+            "operating_systems",
+            "astronomy",
+            "nature",
+            "cryptography",
+            "programmation",
+            "robotics",
+            "electronics",
+            "microcontrollers",
+            "sensors",
+            "actuators",
+            "control_theory",
+            "embedded_systems",
+            "mechanics",
+            "electronics_book",
+            "robotics_course",
+            "music",
+            "humans",
+            "fables",
+            "philosophy_texts",
+            "rust_book",
+            "logic_course",
         ] {
             whitelisted_topics.insert(topic.to_string());
         }
