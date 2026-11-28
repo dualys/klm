@@ -82,6 +82,7 @@ struct SavedSovereignFilter {
     #[serde(default)]
     wikimedia_sources_version: u8,
 }
+
 impl From<SavedSovereignFilter> for SovereignFilter {
     fn from(saved: SavedSovereignFilter) -> Self {
         let mut filter = Self {
@@ -105,7 +106,7 @@ impl From<SavedSovereignFilter> for SovereignFilter {
                     filter.whitelisted_domains.insert((*domain).to_string());
                 }
             }
-            filter.wikimedia_sources_version = 2;
+            filter.wikimedia_sources_version = 1;
         }
         if filter.wikimedia_sources_version < 2 {
             for topic in Self::new().whitelisted_topics {
@@ -240,7 +241,7 @@ impl SovereignFilter {
             blacklisted_domains,
             sensitive_privacy_keywords,
             strict_whitelist_mode: true,
-            wikimedia_sources_version: 1,
+            wikimedia_sources_version: 2,
         }
     }
 

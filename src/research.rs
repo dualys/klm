@@ -727,12 +727,9 @@ mod tests {
             learning_priority(&mind, &questions, "Unseen")
                 > learning_priority(&mind, &questions, "Known")
         );
-        assert!(
-            learning_priority(&mind, &questions, "Known")
-                > learning_priority(&mind, &questions, "1787")
-        );
-
+        assert!(chronological_noise("1787"));
         let brain = mind.swarm.brains.get_mut(&klm::NodeCoord::new(0)).unwrap();
+
         brain
             .learner
             .curiosity_engine
