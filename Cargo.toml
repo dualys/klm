@@ -1,6 +1,6 @@
 [package]
 name = "klm"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 description = "Kōgnitara Living Mind"
 license = "AGPL-3.0-or-later"
@@ -43,3 +43,4 @@ chrono = { version = "0.4.45", optional = true }
 rustyline = { version = "15", default-features = false, optional = true }
 tiny_http = { version = "0.12", optional = true }
 getrandom = { version = "0.4", optional = true }
+heapless = "0.9.4"
