@@ -72,6 +72,14 @@ fn cli() -> Command {
     Command::new(env!("CARGO_PKG_NAME"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
         .version(env!("CARGO_PKG_VERSION"))
+        .subcommand(
+            Command::new("pack").about("Compress and append current state to Kpack registry"),
+        )
+        .subcommand(Command::new("unpack").about("Restore latest state from Kpack registry"))
+        .subcommand(
+            Command::new("reflections").about("Display Socratic reflections from the last 24h"),
+        )
+        .subcommand(Command::new("hypotheses").about("List recorded hypotheses and evidence"))
         .subcommand(Command::new("dream").about("Put kognitara in dream mode"))
         .subcommand(Command::new("family").about("Manage Kognitara family"))
         .subcommand(Command::new("status").about("Display Kognitara status"))
@@ -856,11 +864,6 @@ fn interact(kognitara: &mut Kognitara) {
                 topic = trimmed[7..].trim();
             }
             convene_council(kognitara, topic);
-        } else if trimmed.to_lowercase().starts_with("tag ") {
-            let tag_name = trimmed[4..].trim();
-            tag_state(kognitara, tag_name);
-        } else if trimmed.eq_ignore_ascii_case("tags") {
-            list_tags();
         } else if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
             pack(kognitara, &storage_paths().data);
             break;
@@ -1053,6 +1056,27 @@ fn unpack(kognitara: &mut Kognitara, path: &Path) -> bool {
 
 fn kog(matches: &ArgMatches, kognitara: &mut Kognitara) {
     match matches.subcommand() {
+        Some(("reflections", _)) => {
+            if let Err(error) = reflection_log::display(kognitara, current_timestamp(), stdout()) {
+                ko(&format!("Cannot display reflections: {error}"));
+            }
+        }
+        Some(("hypotheses", _)) => {
+            let _ = hypothesis_command(kognitara, "hypotheses");
+        }
+        Some(("family", _)) => {
+            ok(&format!(
+                "Sanctuary: {}",
+                kognitara.sanctuary.sanctuary_name
+            ));
+            for member in kognitara.sanctuary.members.values() {
+                println!(
+                    "  * {} ({:?}) — Affinity: {:.2}",
+                    member.name, member.role, member.affective_affinity
+                );
+            }
+        }
+
         Some(("ui", _)) => {
             if let Err(error) = web_ui::serve(kognitara, &storage_paths().data, &ki()) {
                 eprintln!("Web interface failed: {error}");

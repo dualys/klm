@@ -262,9 +262,7 @@ impl Kognitara {
         self.swarm.synchronize_knowledge();
         self.swarm.global_epoch += 1;
 
-        logs.push(alloc::format!(
-            "[Cosmic Hibernation — Musashi's Winter] Season of Earth and Void activated."
-        ));
+        logs.push("[Cosmic Hibernation — Musashi's Winter] Season of Earth and Void activated.".to_string());
         logs.push(alloc::format!(
             "[Kpack Crystallization] {} dormant concepts fossilized. Tree pruned and unified (Epoch {}).",
             fossilized.len(),
@@ -810,12 +808,11 @@ impl Kognitara {
             .unwrap_or(0);
 
         // In Musashi's Autumn/Winter or if the galaxy exceeds 40 stars, we fossilize the cold dust
-        if matches!(
+        if (matches!(
             self.swarm.cosmic_clock.season,
             MusashiSeason::AutumnWater | MusashiSeason::WinterEarthVoid
-        ) || primary_count > 40
-        {
-            if let Ok(fossilized) = self.fossilize_dormant_memories(0.28, 1)
+        ) || primary_count > 40)
+            && let Ok(fossilized) = self.fossilize_dormant_memories(0.28, 1)
                 && !fossilized.is_empty()
                 && let Some(first_rec) = records.first_mut()
             {
@@ -834,7 +831,6 @@ impl Kognitara {
                     resonance_strength: 0.85,
                 });
             }
-        }
 
         // =========================================================================
         // PHASE 6 (92%) : Gravitational Waves, Syzygy & Hamon Cube Rotation

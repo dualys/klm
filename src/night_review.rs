@@ -222,14 +222,12 @@ fn examine(
                 if edge.relation_type == RelationType::Contradiction
                     && (hypothesis.related_concepts.contains(&edge.source)
                         || hypothesis.related_concepts.contains(&edge.target))
-                {
-                    if let (Some(left), Some(right)) = (
+                    && let (Some(left), Some(right)) = (
                         brain.tree.concepts.get(&edge.source),
                         brain.tree.concepts.get(&edge.target),
                     ) {
                         contradictions.push(format!("{} / {}", left.label, right.label));
                     }
-                }
             }
         }
         let key = format!("{id}:{revision}");
@@ -341,8 +339,8 @@ fn cycle_at<T: chrono::TimeZone>(
     let date = now.date_naive().to_string();
     let target = examine(&mind, &mut state, timestamp, &date);
     save(directory, &state)?;
-    if let Some((id, revision, topic, domain, title)) = target {
-        if state
+    if let Some((id, revision, topic, domain, title)) = target
+        && state
             .last_request
             .is_none_or(|last| timestamp.saturating_sub(last) >= REQUEST_INTERVAL)
         {
@@ -367,7 +365,6 @@ fn cycle_at<T: chrono::TimeZone>(
             });
             save(directory, &state)?;
         }
-    }
     println!(
         "Night review: {} concepts and {} hypotheses examined in total; conclusions remain unverified.",
         state.concept_examinations, state.hypothesis_examinations

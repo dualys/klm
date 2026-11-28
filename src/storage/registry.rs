@@ -52,7 +52,7 @@ fn normalize_id(id: &str) -> io::Result<String> {
     }
 
     let mut normalized = String::with_capacity(64);
-    for pair in id.as_bytes().chunks_exact(2) {
+    for pair in id.as_bytes().as_chunks::<2>().0 {
         let pair = std::str::from_utf8(pair).map_err(|error| invalid_data(error.to_string()))?;
         let byte = u8::from_str_radix(pair, 16)
             .map_err(|_| invalid_data("Snapshot ID contains a non-hexadecimal character"))?;

@@ -82,7 +82,6 @@ struct SavedSovereignFilter {
     #[serde(default)]
     wikimedia_sources_version: u8,
 }
-
 impl From<SavedSovereignFilter> for SovereignFilter {
     fn from(saved: SavedSovereignFilter) -> Self {
         let mut filter = Self {
@@ -106,7 +105,13 @@ impl From<SavedSovereignFilter> for SovereignFilter {
                     filter.whitelisted_domains.insert((*domain).to_string());
                 }
             }
-            filter.wikimedia_sources_version = 1;
+            filter.wikimedia_sources_version = 2;
+        }
+        if filter.wikimedia_sources_version < 2 {
+            for topic in Self::new().whitelisted_topics {
+                filter.whitelisted_topics.insert(topic);
+            }
+            filter.wikimedia_sources_version = 2;
         }
         filter
     }
@@ -524,61 +529,6 @@ impl KnowledgeHarvester {
         }
     }
 
-    /// Extracts semantic/ecological triples `(source, RelationType, target)` from natural sentences.
-    fn extract_triples_from_text(
-        text: &str,
-        domain: &str,
-        tree: &mut KnowledgeTree,
-    ) -> Vec<(ConceptId, RelationType, ConceptId)> {
-        let mut results = Vec::new();
-
-        // Split by clauses (`.`, `;`, `, and `)
-        for raw_clause in text.split(['.', ';']) {
-            let clause = raw_clause.trim().to_lowercase();
-            if clause.is_empty() {
-                continue;
-            }
-
-            let patterns: &[(&str, RelationType)] = &[
-                (" grows from ", RelationType::GrowsFrom),
-                (" grow from ", RelationType::GrowsFrom),
-                (" emerges from ", RelationType::GrowsFrom),
-                (" make ", RelationType::Composes),
-                (" makes ", RelationType::Composes),
-                (" compose ", RelationType::Composes),
-                (" composes ", RelationType::Composes),
-                (" weave ", RelationType::Composes),
-                (" weaves ", RelationType::Composes),
-                (" sustain ", RelationType::Sustains),
-                (" sustains ", RelationType::Sustains),
-                (" nourish ", RelationType::Sustains),
-                (" nourishes ", RelationType::Sustains),
-                (" harmonize with ", RelationType::Harmonizes),
-                (" harmonizes with ", RelationType::Harmonizes),
-                (" symbiose with ", RelationType::Harmonizes),
-                (" is part of ", RelationType::PartWhole),
-                (" contradic", RelationType::Contradiction),
-                (" causes ", RelationType::Causal),
-            ];
-
-            for (marker, rel_type) in patterns {
-                if let Some((left, right)) = clause.split_once(marker) {
-                    let src_name = Self::singularize(&Self::extract_head_noun(left));
-                    let tgt_name = Self::singularize(&Self::extract_head_noun(right));
-
-                    if src_name.len() >= 2 && tgt_name.len() >= 2 && src_name != tgt_name {
-                        let src_id = Self::ensure_concept(tree, &src_name, domain, &clause);
-                        let tgt_id = Self::ensure_concept(tree, &tgt_name, domain, &clause);
-                        results.push((src_id, rel_type.clone(), tgt_id));
-                    }
-                    break;
-                }
-            }
-        }
-
-        results
-    }
-
     fn ensure_concept(
         tree: &mut KnowledgeTree,
         norm_name: &str,
@@ -601,16 +551,124 @@ impl KnowledgeHarvester {
         }
         cid
     }
+    fn is_stopword(word: &str) -> bool {
+        matches!(
+            word,
+            "a" | "an"
+                | "the"
+                | "of"
+                | "to"
+                | "in"
+                | "and"
+                | "some"
+                | "many"
+                | "all"
+                | "together"
+                | "single"
+                | "living"
+                | "le"
+                | "la"
+                | "les"
+                | "l"
+                | "un"
+                | "une"
+                | "des"
+                | "du"
+                | "de"
+                | "d"
+                | "en"
+                | "au"
+                | "aux"
+                | "et"
+                | "ou"
+                | "par"
+                | "pour"
+                | "sur"
+                | "dans"
+                | "ce"
+                | "cette"
+                | "ces"
+        )
+    }
 
+    /// Extracts semantic/ecological triples `(source, RelationType, target)` from natural sentences.
+    fn extract_triples_from_text(
+        text: &str,
+        domain: &str,
+        tree: &mut KnowledgeTree,
+    ) -> Vec<(ConceptId, RelationType, ConceptId)> {
+        let mut results = Vec::new();
+
+        for raw_clause in text.split(['.', ';']) {
+            let clause = raw_clause.trim().to_lowercase();
+            if clause.is_empty() {
+                continue;
+            }
+
+            let patterns: &[(&str, RelationType)] = &[
+                // Anglais
+                (" grows from ", RelationType::GrowsFrom),
+                (" grow from ", RelationType::GrowsFrom),
+                (" emerges from ", RelationType::GrowsFrom),
+                (" make ", RelationType::Composes),
+                (" makes ", RelationType::Composes),
+                (" compose ", RelationType::Composes),
+                (" composes ", RelationType::Composes),
+                (" weave ", RelationType::Composes),
+                (" weaves ", RelationType::Composes),
+                (" sustain ", RelationType::Sustains),
+                (" sustains ", RelationType::Sustains),
+                (" nourish ", RelationType::Sustains),
+                (" nourishes ", RelationType::Sustains),
+                (" harmonize with ", RelationType::Harmonizes),
+                (" harmonizes with ", RelationType::Harmonizes),
+                (" symbiose with ", RelationType::Harmonizes),
+                (" is part of ", RelationType::PartWhole),
+                (" contradic", RelationType::Contradiction),
+                (" causes ", RelationType::Causal),
+                // Français
+                (" naît de ", RelationType::GrowsFrom),
+                (" provient de ", RelationType::GrowsFrom),
+                (" compose ", RelationType::Composes),
+                (" composent ", RelationType::Composes),
+                (" forme ", RelationType::Composes),
+                (" nourrit ", RelationType::Sustains),
+                (" soutient ", RelationType::Sustains),
+                (" protège ", RelationType::Sustains),
+                (" harmonise avec ", RelationType::Harmonizes),
+                (" fait partie de ", RelationType::PartWhole),
+                (" s'oppose à ", RelationType::Contradiction),
+                (" contredit ", RelationType::Contradiction),
+                (" provoque ", RelationType::Causal),
+                (" entraîne ", RelationType::Causal),
+            ];
+
+            for (marker, rel_type) in patterns {
+                if let Some((left, right)) = clause.split_once(marker) {
+                    let src_name = Self::singularize(&Self::extract_head_noun(left));
+                    let tgt_name = Self::singularize(&Self::extract_head_noun(right));
+
+                    if src_name.len() >= 2 && tgt_name.len() >= 2 && src_name != tgt_name {
+                        let src_id = Self::ensure_concept(tree, &src_name, domain, &clause);
+                        let tgt_id = Self::ensure_concept(tree, &tgt_name, domain, &clause);
+                        results.push((src_id, rel_type.clone(), tgt_id));
+                    }
+                    break;
+                }
+            }
+        }
+        results
+    }
     fn normalize_concept_name(raw: &str) -> String {
         let lower = raw.trim().to_lowercase();
         let cleaned: String = lower
             .chars()
+            .map(|c| if c == '\'' || c == '’' { ' ' } else { c })
             .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '_')
             .collect();
         let words: Vec<&str> = cleaned
             .split_whitespace()
-            .filter(|w| !matches!(*w, "a" | "an" | "the" | "of" | "to" | "in" | "and"))
+            .filter(|w| !Self::is_stopword(w) && w.chars().count() >= 2)
             .collect();
         if let Some(first) = words.first() {
             Self::singularize(first)
@@ -622,16 +680,12 @@ impl KnowledgeHarvester {
     fn extract_head_noun(phrase: &str) -> String {
         let cleaned: String = phrase
             .chars()
+            .map(|c| if c == '\'' || c == '’' { ' ' } else { c })
             .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '_')
             .collect();
         let words: Vec<&str> = cleaned
             .split_whitespace()
-            .filter(|w| {
-                !matches!(
-                    *w,
-                    "a" | "an" | "the" | "some" | "many" | "all" | "together" | "single" | "living"
-                )
-            })
+            .filter(|w| !Self::is_stopword(w) && w.chars().count() >= 2)
             .collect();
         words.last().copied().unwrap_or("").to_string()
     }

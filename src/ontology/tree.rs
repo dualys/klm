@@ -118,8 +118,8 @@ impl KnowledgeTree {
                     target_concept.experience_count += 1;
                     matured.push((tgt.clone(), target_concept.confidence));
                 }
-            } else if tgt_conf >= 0.75 && src_conf < 0.75 {
-                if let Some(source_concept) = self.concepts.get_mut(&src) {
+            } else if tgt_conf >= 0.75 && src_conf < 0.75
+                && let Some(source_concept) = self.concepts.get_mut(&src) {
                     let boost = (tgt_conf - src_conf) * weight * 0.18;
                     source_concept.confidence =
                         (source_concept.confidence + boost).clamp(0.10, 0.92);
@@ -127,7 +127,6 @@ impl KnowledgeTree {
                     source_concept.experience_count += 1;
                     matured.push((src.clone(), source_concept.confidence));
                 }
-            }
         }
         matured
     }
@@ -161,11 +160,10 @@ impl KnowledgeTree {
                 if let (Some(ca), Some(cb)) = (self.concepts.get(a), self.concepts.get(b)) {
                     let sim = ((cpu.cosine_similarity(&ca.embedding, &cb.embedding) + 1.0) * 0.5)
                         .clamp(0.0, 1.0);
-                    if sim >= 0.68 {
-                        if best_pair.as_ref().map(|p| sim > p.2).unwrap_or(true) {
+                    if sim >= 0.68
+                        && best_pair.as_ref().map(|p| sim > p.2).unwrap_or(true) {
                             best_pair = Some((a.clone(), b.clone(), sim));
                         }
-                    }
                 }
             }
         }
@@ -628,7 +626,7 @@ impl KnowledgeTree {
                 .edges
                 .iter()
                 .find(|e| {
-                    (&e.target == &curr
+                    (e.target == curr
                         && matches!(
                             e.relation_type,
                             RelationType::Filiation
@@ -636,10 +634,10 @@ impl KnowledgeTree {
                                 | RelationType::Composes
                                 | RelationType::Causal
                         ))
-                        || (&e.source == &curr && e.relation_type == RelationType::GrowsFrom)
+                        || (e.source == curr && e.relation_type == RelationType::GrowsFrom)
                 })
                 .map(|e| {
-                    if &e.target == &curr {
+                    if e.target == curr {
                         e.source.clone()
                     } else {
                         e.target.clone()
@@ -669,7 +667,7 @@ impl KnowledgeTree {
                 .edges
                 .iter()
                 .find(|e| {
-                    &e.source == &curr_down
+                    e.source == curr_down
                         && matches!(
                             e.relation_type,
                             RelationType::Composes
@@ -741,9 +739,9 @@ impl KnowledgeTree {
             }
 
             for edge in &self.edges {
-                let next_opt = if &edge.source == &curr {
+                let next_opt = if edge.source == curr {
                     Some((edge.target.clone(), edge.relation_type.clone()))
-                } else if &edge.target == &curr {
+                } else if edge.target == curr {
                     Some((edge.source.clone(), edge.relation_type.clone()))
                 } else {
                     None

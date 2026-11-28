@@ -163,8 +163,8 @@ impl OrganicLearner {
             if spoken_count >= 2 {
                 break; // Filtre d'attention : elle ne verbalise que les 2 concepts majeurs
             }
-            if let Some(c) = tree.get_concept(id) {
-                if !c.id.0.starts_with("concept_dream_") {
+            if let Some(c) = tree.get_concept(id)
+                && !c.id.0.starts_with("concept_dream_") {
                     if c.confidence > 0.6 {
                         response_fragments.push(format!("I feel strongly about {}.", c.label));
                     } else {
@@ -173,7 +173,6 @@ impl OrganicLearner {
                     }
                     spoken_count += 1;
                 }
-            }
         }
 
         let stage = if self.mistake_lessons.is_empty() && self.episodic_stream.len() < 4 {

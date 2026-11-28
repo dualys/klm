@@ -101,33 +101,40 @@ fn public_title(title: &str) -> bool {
         && !title.contains(':')
         && !title.chars().any(char::is_control)
 }
+
 fn chronological_noise(title: &str) -> bool {
     let t = title.trim().to_lowercase();
     if t.is_empty() {
         return true;
     }
-    // Nombres purs ou négatifs ("1571", "-399")
-    if t.strip_prefix('-')
-        .unwrap_or(&t)
-        .chars()
-        .all(|c| c.is_ascii_digit())
+    // Astéroïdes numérotés "(371) Bohemia" ou nombres purs/négatifs ("1571", "-399")
+    if t.starts_with('(')
+        || t.strip_prefix('-')
+            .unwrap_or(&t)
+            .chars()
+            .all(|c| c.is_ascii_digit())
     {
         return true;
     }
-    // Dates et chronologies Wikipédia ("399 av. J.-C.", "1758 en science", "10 août", "1er février")
-    t.ends_with(" av. j.-c.")
+    // Dates ("10 août", "12 juillet 2011", "1er février")
+    let starts_with_day = t
+        .split_whitespace()
+        .next()
+        .is_some_and(|w| w == "1er" || (w.len() <= 2 && w.chars().all(|c| c.is_ascii_digit())));
+
+    starts_with_day
+        || t.ends_with(" av. j.-c.")
         || t.contains(" en science")
         || t.contains(" en philosophie")
         || t.contains(" en littérature")
         || t.contains(" en informatique")
+        || t.contains(" en jeu vidéo")
+        || t.contains(" en sport")
+        || t.contains(" dans les chemins de fer")
         || t.starts_with("années ")
-        || t.starts_with("1er ")
 }
 
 fn learning_priority(mind: &Kognitara, questions: &[klm::OpenQuestion], title: &str) -> f32 {
-    if chronological_noise(title) {
-        return -1.0;
-    }
     let title = title.replace('_', " ");
     let mut doubt: Option<f32> = None;
     for brain in mind.swarm.brains.values() {
